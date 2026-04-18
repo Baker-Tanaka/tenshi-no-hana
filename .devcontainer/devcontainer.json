@@ -1,0 +1,19 @@
+{
+    "name": "tenshi-no-hana",
+    "dockerComposeFile": "../.docker/compose.yaml",
+    "service": "tenshi-no-hana",
+    "workspaceFolder": "/tenshi-no-hana",
+    "remoteEnv": {
+        "LOCAL_WORKSPACE_FOLDER": "${localWorkspaceFolder}"
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "rust-lang.rust-analyzer",
+                "probe-rs.probe-rs-debugger",
+                "tamasfe.even-better-toml",
+                "fill-labs.dependi"
+            ]
+        }
+    }
+}

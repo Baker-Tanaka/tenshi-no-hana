@@ -1,0 +1,22 @@
+# ROS2 Jazzy + rmw_zenoh_cpp integration test environment
+#
+# Used by both the zenoh-router and ros2-node services in compose.yaml.
+FROM ros:jazzy
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV RMW_IMPLEMENTATION=rmw_zenoh_cpp
+
+# Install rmw_zenoh_cpp and utilities
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-jazzy-rmw-zenoh-cpp \
+    ros-jazzy-demo-nodes-cpp \
+    ros-jazzy-demo-nodes-py \
+    iproute2 iputils-ping \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the entrypoint script
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["bash"]

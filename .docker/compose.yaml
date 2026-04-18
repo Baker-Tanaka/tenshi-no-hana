@@ -1,0 +1,70 @@
+services:
+  tenshi-no-hana:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: "ghcr.io/baker-link-lab/bakerlink-env:latest"
+    container_name: "tenshi-no-hana-container"
+    volumes:
+      - "../:/tenshi-no-hana"
+    working_dir: /tenshi-no-hana
+    command: /bin/sh
+    tty: true
+    depends_on:
+      zenoh-router:
+        condition: service_healthy
+      ros2-node:
+        condition: service_started
+    networks:
+      - zenoh-net
+
+  # Zenoh router — hub for discovery and MCU↔ROS2 data forwarding.
+  # Uses rmw_zenoh_cpp's rmw_zenohd for exact rmw_zenoh_cpp compatibility.
+  zenoh-router:
+    build:
+      context: .
+      dockerfile: Dockerfile.ros2
+    container_name: zenoh-router
+    ports:
+      - "7447:7447"
+    command: >
+      bash -c "
+        source /opt/ros/jazzy/setup.bash &&
+        export RMW_IMPLEMENTATION=rmw_zenoh_cpp &&
+        ros2 run rmw_zenoh_cpp rmw_zenohd --listen tcp/0.0.0.0:7447
+      "
+    healthcheck:
+      test: [ "CMD-SHELL", "timeout 2 bash -c '</dev/tcp/localhost/7447' || exit 1" ]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    networks:
+      - zenoh-net
+
+  # ROS2 subscriber — listens on /chatter with rmw_zenoh_cpp.
+  # Logs received messages; useful for manual verification of MCU publishes.
+  ros2-node:
+    build:
+      context: .
+      dockerfile: Dockerfile.ros2
+    container_name: ros2-node
+    environment:
+      - RMW_IMPLEMENTATION=rmw_zenoh_cpp
+      - ZENOH_ROUTER_CHECK_ATTEMPTS=10
+      - ROS_DOMAIN_ID=0
+      - ZENOH_CONFIG_OVERRIDE=connect/endpoints=["tcp/zenoh-router:7447"]
+    depends_on:
+      zenoh-router:
+        condition: service_healthy
+    command: >
+      bash -c "
+        source /opt/ros/jazzy/setup.bash &&
+        export RMW_IMPLEMENTATION=rmw_zenoh_cpp &&
+        ros2 run demo_nodes_cpp listener
+      "
+    networks:
+      - zenoh-net
+
+networks:
+  zenoh-net:
+    driver: bridge
