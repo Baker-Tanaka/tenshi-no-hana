@@ -1,74 +1,77 @@
+// embassy_multitask.rs - Embassyを使った複数タスクの並行実行
+//
+// Embassyの非同期タスク機能を使って、複数のタスクを並行実行する例です。
+// 各タスクは独立して動作し、async/awaitにより協調的にスケジューリングされます。
+//
+// タスク構成:
+//   - green_led_task: GPIO22の緑LEDを1秒間隔で点滅
+//   - red_led_task:   GPIO20の赤LEDを2秒間隔で点滅
+//   - logger_task:    5秒ごとにステータスをログ出力
+//
+// 実行方法: cargo run --no-default-features --features embassy --example embassy_multitask
+
 #![no_std]
 #![no_main]
 
 use defmt::*;
 use defmt_rtt as _;
+use embassy_executor::Spawner;
+use embassy_rp::gpio::{Level, Output};
+use embassy_time::Timer;
 use panic_probe as _;
-use rp2040_hal as hal;
 
-use hal::pac;
-
-use embedded_hal::delay::DelayNs;
-use embedded_hal::digital::OutputPin;
-
-#[link_section = ".boot2"]
-#[used]
-pub static BOOT2: [u8; 256] = rp2040_boot2::BOOT_LOADER_GENERIC_03H;
-
-const XTAL_FREQ_HZ: u32 = 12_000_000u32;
-
-#[rp2040_hal::entry]
-fn main() -> ! {
-    info!("Program start!");
-    let mut pac = pac::Peripherals::take().unwrap();
-
-    let mut watchdog = hal::Watchdog::new(pac.WATCHDOG);
-
-    let clocks = hal::clocks::init_clocks_and_plls(
-        XTAL_FREQ_HZ,
-        pac.XOSC,
-        pac.CLOCKS,
-        pac.PLL_SYS,
-        pac.PLL_USB,
-        &mut pac.RESETS,
-        &mut watchdog,
-    )
-    .ok()
-    .unwrap();
-
-    let mut timer = rp2040_hal::Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
-
-    let sio = hal::Sio::new(pac.SIO);
-
-    let pins = hal::gpio::Pins::new(
-        pac.IO_BANK0,
-        pac.PADS_BANK0,
-        sio.gpio_bank0,
-        &mut pac.RESETS,
-    );
-
-    let mut green_led = pins.gpio22.into_push_pull_output();
-    let mut orange_led = pins.gpio21.into_push_pull_output();
-    let mut red_led = pins.gpio20.into_push_pull_output();
-
+#[embassy_executor::task]
+async fn green_led_task(mut led: Output<'static>) {
+    info!("Green LED task started (1s interval)");
     loop {
-        info!("green");
-        green_led.set_high().unwrap();
-        timer.delay_ms(2000);
-        green_led.set_low().unwrap();
+        led.set_high();
+        Timer::after_millis(1000).await;
+        led.set_low();
+        Timer::after_millis(1000).await;
+    }
+}
 
-        info!("orange");
-        for _ in 1..4 {
-            orange_led.set_high().unwrap();
-            timer.delay_ms(500);
-            orange_led.set_low().unwrap();
-            timer.delay_ms(500);
-        }
-        orange_led.set_low().unwrap();
+#[embassy_executor::task]
+async fn red_led_task(mut led: Output<'static>) {
+    info!("Red LED task started (2s interval)");
+    loop {
+        led.set_high();
+        Timer::after_millis(2000).await;
+        led.set_low();
+        Timer::after_millis(2000).await;
+    }
+}
 
-        info!("red");
-        red_led.set_high().unwrap();
-        timer.delay_ms(2000);
-        red_led.set_low().unwrap();
+#[embassy_executor::task]
+async fn logger_task() {
+    info!("Logger task started (5s interval)");
+    let mut count: u32 = 0;
+    loop {
+        Timer::after_secs(5).await;
+        count += 1;
+        info!("System running... uptime: {}s", count * 5);
+    }
+}
+
+#[embassy_executor::main]
+async fn main(spawner: Spawner) {
+    info!("Embassy multitask example start!");
+
+    let p = embassy_rp::init(Default::default());
+
+    // GPIO出力の初期化
+    let green_led = Output::new(p.PIN_22, Level::Low);
+    let red_led = Output::new(p.PIN_20, Level::Low);
+
+    // 各タスクを生成（spawn）
+    spawner.spawn(green_led_task(green_led).unwrap());
+    spawner.spawn(red_led_task(red_led).unwrap());
+    spawner.spawn(logger_task().unwrap());
+
+    info!("All tasks spawned! Main task going idle.");
+
+    // メインタスクは何もしない（他のタスクが動作）
+    loop {
+        Timer::after_secs(3600).await;
     }
 }
