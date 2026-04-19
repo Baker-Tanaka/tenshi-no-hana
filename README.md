@@ -25,17 +25,15 @@
 
 ## ハードウェア BOM（最安志向・日本国内中心・2026年4月時点）
 
-| 部品名               | 具体品番・おすすめ                                   | 価格目安（税込） | 購入URL                                                                                                | 備考                                 |
-| -------------------- | ---------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------ |
-| 2WDロボットシャーシ  | FT-DC-002 / 2WD Mini Smart Robot Mobile Platform Kit | ¥1,900           | [秋月電子](https://akizukidenshi.com/catalog/g/g113651/)                                               | モーター付き、エンコーダ無し版もあり |
-| Baker link. Dev      | -                                                    | ¥1,980           | [スイッチサイエンス](https://www.switch-science.com/products/10044)                                    | Embassy-rsでRust no_std完璧対応      |
-| モータドライバ       | TB6612FNG モジュール or IC                           | ¥400〜1,395      | [Amazon](https://www.amazon.co.jp/-/en/Module-Bridge-Driver-TB6612FNG-100KHz/dp/B09N9Y9J29) または秋月 | Pico PWM直駆動に最適                 |
-| エタノールセンサー   | MQ-3B (またはMQ-3モジュール)                         | ¥450             | [秋月電子](https://akizukidenshi.com/catalog/g/g116269/)                                               | 天使の分け前検知の主役               |
-| 温湿度・気圧センサー | BME280 モジュール (AE-BME280)                        | ¥1,080〜1,380    | [秋月電子](https://akizukidenshi.com/catalog/g/g109421/)                                               | 蒸発量補正に必須                     |
-| IMU (オプション)     | MPU6050 GY-521                                       | ¥300〜600        | Amazon / 秋月類似品                                                                                    | odom計算・姿勢推定用                 |
-| 超音波センサー (×2)  | HC-SR04                                              | ¥300×2 = ¥600    | [秋月電子](https://akizukidenshi.com/catalog/g/g111009/)                                               | 障害物回避                           |
-| 電源                 | 18650×2 + ホルダー + DC-DC降圧 or モバイルバッテリー | ¥800〜1,500      | Amazon / 秋月                                                                                          | 長時間稼働                           |
-| その他               | ジャンパワイヤ、ネジ、ユニバーサル基板など           | ¥500〜1,000      | 秋月 / Amazon                                                                                          | 配線・固定用                         |
+| 部品名               | 具体品番・おすすめ                                   | 価格目安（税込） | 購入URL                                                             | 備考                                 |
+| -------------------- | ---------------------------------------------------- | ---------------- | ------------------------------------------------------------------- | ------------------------------------ |
+| 2WDロボットシャーシ  | FT-DC-002 / 2WD Mini Smart Robot Mobile Platform Kit | ¥1,900           | [秋月電子](https://akizukidenshi.com/catalog/g/g113651/)            | モーター付き、エンコーダ無し版もあり |
+| Baker link. Dev      | -                                                    | ¥1,980           | [スイッチサイエンス](https://www.switch-science.com/products/10044) | Embassy-rsでRust no_std完璧対応      |
+| モータドライバ       | デュアルモータードライバDRV8835                      | ¥400〜1,395      | [秋月電子](https://akizukidenshi.com/catalog/g/g109848/)            | PWM直駆動に最適                      |
+| エタノールセンサー   | MQ-3B (またはMQ-3モジュール)                         | ¥450             | [秋月電子](https://akizukidenshi.com/catalog/g/g116269/)            | 天使の分け前検知の主役               |
+| 温湿度・気圧センサー | BME280 モジュール (AE-BME280)                        | ¥1,080〜1,380    | [秋月電子](https://akizukidenshi.com/catalog/g/g109421/)            | 蒸発量補正に必須                     |
+| IMU (オプション)     | 6軸IMUセンサーモジュール                             | ¥990             | [秋月電子](https://akizukidenshi.com/catalog/g/g130950/)            | odom計算・姿勢推定用                 |
+| 超音波センサー       | HC-SR04                                              | ¥300             | [秋月電子](https://akizukidenshi.com/catalog/g/g111009/)            | 障害物回避                           |
 
 
 ## 無線通信
@@ -60,39 +58,95 @@
 ---
 
 **関連リンク**：  
-- bakerlink.dev  
 - X: [@BakerlinkLab](https://x.com/BakerlinkLab)
 
 ---
 
 「天使の鼻で、ウィスキーの息吹を嗅ぐ。」🥃✨
-
-このREADMEは自由にカスタマイズしてください。  
-配線図・回路図・キャリブレーション方法・ROS2パッケージが完成したら、随時追加していきましょう！
+配線図・回路図・キャリブレーション方法・ROS2パッケージが完成したら、随時追加していきます！
 
 ## ESP32-Hosted（ESP32-C3）
+
 `sdkconfig` から、現在のピンアサインを抜き出しました。
-### Seeed Studio XIAO ESP32C3 の esp-hosted Slave ピン割り当て
 
-| 信号名         | GPIO  | XIAO ESP32C3 物理ピン | 用途                       |
-| -------------- | ----- | --------------------- | -------------------------- |
-| **SPI MOSI**   | 7     | **D5**                | 必須                       |
-| **SPI MISO**   | 2     | **D0**                | 必須                       |
-| **SPI CLK**    | 6     | **D4**                | 必須                       |
-| **SPI CS**     | 10    | **D10**               | 必須                       |
-| **Handshake**  | 3     | **D1**                | 重要（タイミング同期）     |
-| **Data Ready** | **4** | **D2**                | 重要（データ到着通知）     |
-| **Reset**      | -1    | （未使用）            | ホスト側で任意のピンを使う |
+> **参考**: [Seeed Studio XIAO ESP32C3 Getting Started](https://wiki.seeedstudio.com/XIAO_ESP32C3_Getting_Started/)
 
-**重要ポイント**:
-- **Data Ready** が **GPIO4（D2）** になっています（デフォルトの9ではありません）。
-- **Reset** は `-1`（無効）になっています。Rust側（ホストMCU）からリセット制御したい場合は、後でmenuconfigでGPIOを指定してください。
+### XIAO ESP32C3 GPIO ↔ 物理ピン対応表
 
-**Resetピンを有効にする**（おすすめ）
-   menuconfigでResetピンを設定しましょう。
-   ```powershell
-   idf.py menuconfig
-   ```
-   → Example Configuration → Bus Config → SPI Full-Duplex Configuration → **Reset pin** で任意のGPIO（例: GPIO5 = D3）を指定 → 保存 → 再ビルド・フラッシュ。
+| XIAO ピン | GPIO   | デフォルト機能 | 備考                                  |
+| --------- | ------ | -------------- | ------------------------------------- |
+| **D0**    | GPIO2  | ADC            | ⚠️ **ストラッピングピン**              |
+| **D1**    | GPIO3  | ADC            |                                       |
+| **D2**    | GPIO4  | ADC            | MTMS (JTAG)                           |
+| **D3**    | GPIO5  | ADC            | MTDI (JTAG)                           |
+| **D4**    | GPIO6  | **SDA (I2C)**  | FSPICLK, MTCK (JTAG)                  |
+| **D5**    | GPIO7  | **SCL (I2C)**  | FSPID, MTDO (JTAG)                    |
+| **D6**    | GPIO21 | TX (UART)      |                                       |
+| **D7**    | GPIO20 | RX (UART)      |                                       |
+| **D8**    | GPIO8  | SPI SCK        | ⚠️ **ストラッピングピン**              |
+| **D9**    | GPIO9  | SPI MISO       | ⚠️ **ストラッピングピン / BOOTボタン** |
+| **D10**   | GPIO10 | SPI MOSI       | FSPICS0                               |
+
+### Seeed Studio XIAO ESP32C3 の esp-hosted Slave ピン割り当て（推奨構成）
+
+> ストラッピングピン（GPIO2/8/9）を **すべて回避** した安全な構成です。
+
+| 信号名         | GPIO   | XIAO 物理ピン | 接続方式        | 用途                   |
+| -------------- | ------ | ------------- | --------------- | ---------------------- |
+| **SPI MOSI**   | GPIO7  | **D5**        | FSPID（専用）   | 必須                   |
+| **SPI MISO**   | GPIO5  | **D3**        | GPIO Matrix     | 必須                   |
+| **SPI CLK**    | GPIO6  | **D4**        | FSPICLK（専用） | 必須                   |
+| **SPI CS**     | GPIO10 | **D10**       | FSPICS0（専用） | 必須                   |
+| **Handshake**  | GPIO3  | **D1**        | GPIO            | 重要（タイミング同期） |
+| **Data Ready** | GPIO4  | **D2**        | GPIO            | 重要（データ到着通知） |
+| **Reset**      | GPIO21 | **D6**        | GPIO            | 推奨（リセット制御）   |
+
+#### 旧構成からの変更点
+
+| 信号名   | 旧 GPIO      | 新 GPIO      | 変更理由                                    |
+| -------- | ------------ | ------------ | ------------------------------------------- |
+| SPI MISO | GPIO2（D0）⚠️ | GPIO5（D3）  | GPIO2 はストラッピングピン → 起動不安定回避 |
+| Reset    | -1（無効）   | GPIO21（D6） | ホスト側からのリセット制御を有効化          |
+
+#### 空きピン
+
+| XIAO ピン | GPIO   | 状態                                 |
+| --------- | ------ | ------------------------------------ |
+| **D0**    | GPIO2  | 空き（⚠️ ストラッピング：未使用推奨） |
+| **D7**    | GPIO20 | 空き（UART RX — デバッグ用に確保）   |
+| **D8**    | GPIO8  | 空き（⚠️ ストラッピング：未使用推奨） |
+| **D9**    | GPIO9  | 空き（⚠️ BOOTボタン：未使用推奨）     |
+
+### 注意事項
+
+1. **I2C デフォルトピンは SPI で占有**
+   - D4（GPIO6）= SDA、D5（GPIO7）= SCL は XIAO 標準の I2C ピンですが、SPI CLK / MOSI で使用しています。
+   - I2C センサー（BME280 等）はすべて **ホスト側（Baker link. Dev）の I2C** に接続してください。ESP32-C3 側に I2C デバイスは接続しません。
+
+2. **JTAG デバッグ不可**
+   - GPIO4〜7（D2〜D5）は JTAG ピン（MTMS/MTDI/MTCK/MTDO）ですが、SPI + 信号線で使い切っています。ESP32-C3 の JTAG デバッグはこの構成では使用できません。USB シリアル経由でのデバッグを使用してください。
+
+3. **Data Ready のデフォルト GPIO9 は使用不可**
+   - XIAO ESP32C3 では GPIO9 が **BOOT ボタン** に接続されているため、Data Ready は GPIO4（D2）に変更しています。
+
+### menuconfig での設定手順
+
+```powershell
+idf.py menuconfig
+```
+
+→ **Example Configuration → Bus Config → SPI Full-Duplex Configuration** で以下を設定：
+
+| 設定項目          | 値     |
+| ----------------- | ------ |
+| SPI MOSI (GPIO)   | **7**  |
+| SPI MISO (GPIO)   | **5**  |
+| SPI CLK (GPIO)    | **6**  |
+| SPI CS (GPIO)     | **10** |
+| Handshake (GPIO)  | **3**  |
+| Data Ready (GPIO) | **4**  |
+| Reset pin (GPIO)  | **21** |
+
+→ 保存 → 再ビルド・フラッシュ。
 
 
