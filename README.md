@@ -69,3 +69,30 @@
 
 このREADMEは自由にカスタマイズしてください。  
 配線図・回路図・キャリブレーション方法・ROS2パッケージが完成したら、随時追加していきましょう！
+
+## ESP32-Hosted（ESP32-C3）
+`sdkconfig` から、現在のピンアサインを抜き出しました。
+### Seeed Studio XIAO ESP32C3 の esp-hosted Slave ピン割り当て
+
+| 信号名         | GPIO  | XIAO ESP32C3 物理ピン | 用途                       |
+| -------------- | ----- | --------------------- | -------------------------- |
+| **SPI MOSI**   | 7     | **D5**                | 必須                       |
+| **SPI MISO**   | 2     | **D0**                | 必須                       |
+| **SPI CLK**    | 6     | **D4**                | 必須                       |
+| **SPI CS**     | 10    | **D10**               | 必須                       |
+| **Handshake**  | 3     | **D1**                | 重要（タイミング同期）     |
+| **Data Ready** | **4** | **D2**                | 重要（データ到着通知）     |
+| **Reset**      | -1    | （未使用）            | ホスト側で任意のピンを使う |
+
+**重要ポイント**:
+- **Data Ready** が **GPIO4（D2）** になっています（デフォルトの9ではありません）。
+- **Reset** は `-1`（無効）になっています。Rust側（ホストMCU）からリセット制御したい場合は、後でmenuconfigでGPIOを指定してください。
+
+**Resetピンを有効にする**（おすすめ）
+   menuconfigでResetピンを設定しましょう。
+   ```powershell
+   idf.py menuconfig
+   ```
+   → Example Configuration → Bus Config → SPI Full-Duplex Configuration → **Reset pin** で任意のGPIO（例: GPIO5 = D3）を指定 → 保存 → 再ビルド・フラッシュ。
+
+
