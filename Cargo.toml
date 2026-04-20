@@ -18,7 +18,7 @@ sensor = ["embassy", "dep:bme280"]
 wifi = [
     "embassy",
     "dep:embassy-net",
-    "dep:embassy-net-esp-hosted",
+    "dep:embassy-net-esp-hosted-mcu",
     "dep:embedded-hal-bus",
     "dep:embedded-hal-async",
     "dep:embedded-io-async",
@@ -66,7 +66,9 @@ embassy-net = { version = "0.7", features = [
     "dhcpv4",
     "medium-ethernet",
 ], optional = true }
-embassy-net-esp-hosted = { version = "0.3", optional = true }
+embassy-net-esp-hosted-mcu = { path = "external/embassy/embassy-net-esp-hosted-mcu", features = [
+    "defmt",
+], optional = true }
 embedded-hal-bus = { version = "0.2", features = ["async"], optional = true }
 embedded-hal-async = { version = "1.0", optional = true }
 embedded-io-async = { version = "0.6", optional = true }
@@ -95,6 +97,10 @@ name = "sensor_read"
 required-features = ["sensor"]
 
 [[example]]
+name = "esp_hosted_spi_test"
+required-features = ["wifi"]
+
+[[example]]
 name = "wifi_zenoh_chatter"
 required-features = ["wifi"]
 
@@ -111,6 +117,17 @@ incremental = false
 opt-level = 0
 overflow-checks = true
 
+# Optimize ALL dependencies at opt-level=2 (examples/src stay at opt-level=0).
+# Reasons:
+#   1. micropb-generated CtrlMsg::decode() has 64 oneof match arms.
+#      At opt-level=0 the compiler doesn't reuse stack slots → ~96 KB.
+#   2. Embassy async poll chains (executor/time/sync/rp/net) accumulate
+#      large stack frames at opt-level=0. The ioctl path has 6 nested
+#      async levels; unoptimized poll frames corrupt memory during decode.
+#   3. Standard embedded-Rust best practice for Cortex-M0+.
+[profile.dev.package."*"]
+opt-level = 2
+
 # cargo build/run --release
 [profile.release]
 codegen-units = 1
@@ -120,3 +137,8 @@ incremental = false
 lto = 'fat'
 opt-level = 3
 overflow-checks = false
+
+[patch.crates-io]
+embassy-net-driver = { path = "external/embassy/embassy-net-driver" }
+embassy-net-driver-channel = { path = "external/embassy/embassy-net-driver-channel" }
+embassy-time-driver = { path = "external/embassy/embassy-time-driver" }

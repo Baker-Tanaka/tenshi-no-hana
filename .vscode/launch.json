@@ -2,11 +2,12 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "preLaunchTask": "rust: cargo build",
+            "preLaunchTask": "cargo: build",
             "type": "probe-rs-debug",
             "request": "launch",
-            "name": "probe_rs Server attach example",
+            "name": "Flash: main (debug)",
             "server": "host.docker.internal:50001",
+            "probe": "2e8a:106b",
             "speed": 4000,
             "chip": "RP2040",
             "flashingConfig": {
@@ -30,6 +31,140 @@
                 "RUST_LOG": "info"
             },
             "consoleLogLevel": "Info"
+        },
+        {
+            "preLaunchTask": "cargo: build sensor example",
+            "type": "probe-rs-debug",
+            "request": "launch",
+            "name": "Flash example (sensor)",
+            "server": "host.docker.internal:50001",
+            "probe": "2e8a:106b",
+            "speed": 4000,
+            "chip": "RP2040",
+            "flashingConfig": {
+                "flashingEnabled": true,
+                "haltAfterReset": true,
+            },
+            "coreConfigs": [
+                {
+                    "coreIndex": 0,
+                    "programBinary": "tenshi-no-hana/target/thumbv6m-none-eabi/debug/examples/${input:sensorExample}",
+                    "rttEnabled": true,
+                }
+            ],
+            "pathMappings": [
+                {
+                    "remoteRoot": "tenshi-no-hana",
+                    "localRoot": "${env:LOCAL_WORKSPACE_FOLDER}"
+                }
+            ],
+            "env": {
+                "RUST_LOG": "info"
+            },
+            "consoleLogLevel": "Info"
+        },
+        {
+            "preLaunchTask": "cargo: build wifi example",
+            "type": "probe-rs-debug",
+            "request": "launch",
+            "name": "Flash example (wifi)",
+            "server": "host.docker.internal:50001",
+            "probe": "2e8a:106b",
+            "speed": 4000,
+            "chip": "RP2040",
+            "flashingConfig": {
+                "flashingEnabled": true,
+                "haltAfterReset": true,
+            },
+            "coreConfigs": [
+                {
+                    "coreIndex": 0,
+                    "programBinary": "tenshi-no-hana/target/thumbv6m-none-eabi/debug/examples/${input:wifiExample}",
+                    "rttEnabled": true,
+                }
+            ],
+            "pathMappings": [
+                {
+                    "remoteRoot": "tenshi-no-hana",
+                    "localRoot": "${env:LOCAL_WORKSPACE_FOLDER}"
+                }
+            ],
+            "env": {
+                "RUST_LOG": "info"
+            },
+            "consoleLogLevel": "Info"
+        },
+        {
+            "preLaunchTask": "cargo: build wifi+sensor example",
+            "type": "probe-rs-debug",
+            "request": "launch",
+            "name": "Flash example (wifi+sensor)",
+            "server": "host.docker.internal:50001",
+            "probe": "2e8a:106b",
+            "speed": 4000,
+            "chip": "RP2040",
+            "flashingConfig": {
+                "flashingEnabled": true,
+                "haltAfterReset": true,
+            },
+            "coreConfigs": [
+                {
+                    "coreIndex": 0,
+                    "programBinary": "tenshi-no-hana/target/thumbv6m-none-eabi/debug/examples/${input:wifiSensorExample}",
+                    "rttEnabled": true,
+                }
+            ],
+            "pathMappings": [
+                {
+                    "remoteRoot": "tenshi-no-hana",
+                    "localRoot": "${env:LOCAL_WORKSPACE_FOLDER}"
+                }
+            ],
+            "env": {
+                "RUST_LOG": "info"
+            },
+            "consoleLogLevel": "Info"
+        }
+    ],
+    "inputs": [
+        {
+            "id": "embassyExample",
+            "description": "Embassy example name",
+            "type": "pickString",
+            "options": [
+                "embassy_blinky",
+                "embassy_button",
+                "embassy_multitask"
+            ],
+            "default": "embassy_blinky"
+        },
+        {
+            "id": "sensorExample",
+            "description": "Sensor example name",
+            "type": "pickString",
+            "options": [
+                "sensor_read"
+            ],
+            "default": "sensor_read"
+        },
+        {
+            "id": "wifiExample",
+            "description": "WiFi example name",
+            "type": "pickString",
+            "options": [
+                "esp_hosted_spi_test",
+                "wifi_zenoh_chatter"
+            ],
+            "default": "esp_hosted_spi_test"
+        },
+        {
+            "id": "wifiSensorExample",
+            "description": "WiFi + Sensor example name",
+            "type": "pickString",
+            "options": [
+                "wifi_zenoh_sensors"
+            ],
+            "default": "wifi_zenoh_sensors"
         }
     ]
 }

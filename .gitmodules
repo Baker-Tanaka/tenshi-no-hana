@@ -1,3 +1,7 @@
 [submodule "external/zenoh_ros2_nostd"]
 	path = external/zenoh_ros2_nostd
 	url = https://github.com/Baker-Tanaka/zenoh_ros2_nostd.git
+[submodule "external/embassy"]
+	path = external/embassy
+	url = https://github.com/oktima/embassy-fork.git
+	branch = upstream-esp-hosted-mcu

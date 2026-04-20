@@ -9,28 +9,54 @@
                 "kind": "build",
                 "isDefault": true
             },
-            "problemMatcher": ["$rustc"]
+            "problemMatcher": [
+                "$rustc"
+            ]
         },
         {
             "label": "cargo: build (release)",
             "type": "shell",
             "command": "cargo build --release",
             "group": "build",
-            "problemMatcher": ["$rustc"]
+            "problemMatcher": [
+                "$rustc"
+            ]
         },
         {
-            "label": "cargo: build embassy example",
+            "label": "cargo: build sensor example",
             "type": "shell",
-            "command": "cargo build --no-default-features --features embassy --example ${input:embassyExample}",
+            "command": "cargo build --no-default-features --features sensor --example ${input:sensorExample}",
             "group": "build",
-            "problemMatcher": ["$rustc"]
+            "problemMatcher": [
+                "$rustc"
+            ]
+        },
+        {
+            "label": "cargo: build wifi example",
+            "type": "shell",
+            "command": "cargo build --no-default-features --features wifi --example ${input:wifiExample}",
+            "group": "build",
+            "problemMatcher": [
+                "$rustc"
+            ]
+        },
+        {
+            "label": "cargo: build wifi+sensor example",
+            "type": "shell",
+            "command": "cargo build --no-default-features --features wifi,sensor --example ${input:wifiSensorExample}",
+            "group": "build",
+            "problemMatcher": [
+                "$rustc"
+            ]
         },
         {
             "label": "cargo: check",
             "type": "shell",
             "command": "cargo check",
             "group": "build",
-            "problemMatcher": ["$rustc"]
+            "problemMatcher": [
+                "$rustc"
+            ]
         },
         {
             "label": "cargo fmt: format code",
@@ -96,15 +122,32 @@
     ],
     "inputs": [
         {
-            "id": "embassyExample",
-            "description": "Embassy example name",
+            "id": "sensorExample",
+            "description": "Sensor example name",
             "type": "pickString",
             "options": [
-                "embassy_blinky",
-                "embassy_button",
-                "embassy_multitask"
+                "sensor_read"
             ],
-            "default": "embassy_blinky"
+            "default": "sensor_read"
+        },
+        {
+            "id": "wifiExample",
+            "description": "WiFi example name",
+            "type": "pickString",
+            "options": [
+                "esp_hosted_spi_test",
+                "wifi_zenoh_chatter"
+            ],
+            "default": "esp_hosted_spi_test"
+        },
+        {
+            "id": "wifiSensorExample",
+            "description": "WiFi + Sensor example name",
+            "type": "pickString",
+            "options": [
+                "wifi_zenoh_sensors"
+            ],
+            "default": "wifi_zenoh_sensors"
         }
     ]
 }

@@ -37,7 +37,7 @@
 
 ## 無線通信
 - **XIAO-ESP32-C3** を使用（ESP-Hosted-MCU）
-- [embassy-net-esp-hosted](https://github.com/embassy-rs/embassy/tree/embassy-net-esp-hosted-v0.3.0/embassy-net-esp-hosted) でRust/Embassy環境から快適にWi-Fi接続可能
+- `external/embassy` サブモジュール（`https://github.com/oktima/embassy-fork.git` の `upstream-esp-hosted-mcu`）に含まれる `embassy-net-esp-hosted` を使用
 
 ## ソフトウェア構成
 - **zenoh-ros2-nostd**
@@ -137,3 +137,22 @@ idf.py menuconfig
 → 保存 → 再ビルド・フラッシュ。
 
 
+```bash
+# esp-hosted-mcu の slave サンプルを作成
+# (ESP-IDF v5.3 以降を想定)
+idf.py create-project-from-example "espressif/esp_hosted:slave"
+cd slave
+idf.py set-target esp32c3
+idf.py menuconfig
+# → Example Configuration → Bus Config in between Host and Co-processor
+#   → SPI Full-Duplex Configuration → GPIO設定:
+#   MISO=5, MOSI=7, CLK=6, CS=10, HS=3, DR=4
+#   Reset GPIO=21
+idf.py build flash
+```
+
+RP2040側の依存は本リポジトリのサブモジュールで管理します。
+
+```bash
+git submodule update --init --recursive external/embassy external/zenoh_ros2_nostd
+```
