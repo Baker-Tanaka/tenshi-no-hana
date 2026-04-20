@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["hal-rt"]
+default = ["embassy"]
 hal-rt = ["rp2040-hal/rt"]
 embassy = [
     "dep:embassy-executor",
@@ -14,12 +14,28 @@ embassy = [
     "dep:embassy-rp",
     "dep:embassy-sync",
 ]
+sensor = ["embassy", "dep:bme280"]
+wifi = [
+    "embassy",
+    "dep:embassy-net",
+    "dep:embassy-net-esp-hosted-mcu",
+    "dep:embedded-hal-bus",
+    "dep:embedded-hal-async",
+    "dep:embedded-io-async",
+    "dep:heapless",
+    "dep:serde",
+    "dep:static_cell",
+    "dep:portable-atomic",
+    "dep:zenoh-ros2-nostd",
+]
 
 [dependencies]
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
 embedded-hal = { version = "1.0.0" }
-embedded_hal_0_2 = { package = "embedded-hal", version = "0.2.5", features = ["unproven"] }
+embedded_hal_0_2 = { package = "embedded-hal", version = "0.2.5", features = [
+    "unproven",
+] }
 defmt = "1.0"
 defmt-rtt = "1.1"
 panic-probe = { version = "1.0", features = ["print-defmt"] }
@@ -29,10 +45,45 @@ critical-section = "1.2"
 fugit = "0.3"
 
 # Embassy dependencies (optional, enabled via "embassy" feature)
-embassy-executor = { version = "0.10", features = ["platform-cortex-m", "executor-thread", "defmt"], optional = true }
+embassy-executor = { version = "0.10", features = [
+    "platform-cortex-m",
+    "executor-thread",
+    "defmt",
+], optional = true }
 embassy-time = { version = "0.5", features = ["defmt"], optional = true }
-embassy-rp = { version = "0.10", features = ["defmt", "rp2040", "time-driver", "critical-section-impl", "boot2-generic-03h"], optional = true }
+embassy-rp = { version = "0.10", features = [
+    "defmt",
+    "rp2040",
+    "time-driver",
+    "critical-section-impl",
+    "boot2-generic-03h",
+], optional = true }
 embassy-sync = { version = "0.8", features = ["defmt"], optional = true }
+
+# WiFi dependencies (optional, enabled via "wifi" feature)
+embassy-net = { version = "0.7", features = [
+    "tcp",
+    "dhcpv4",
+    "medium-ethernet",
+], optional = true }
+embassy-net-esp-hosted-mcu = { path = "external/embassy/embassy-net-esp-hosted-mcu", features = [
+    "defmt",
+], optional = true }
+embedded-hal-bus = { version = "0.2", features = ["async"], optional = true }
+embedded-hal-async = { version = "1.0", optional = true }
+embedded-io-async = { version = "0.6", optional = true }
+heapless = { version = "0.8", features = ["serde"], optional = true }
+serde = { version = "1.0", default-features = false, features = [
+    "derive",
+], optional = true }
+static_cell = { version = "2", optional = true }
+portable-atomic = { version = "1", features = [
+    "unsafe-assume-single-core",
+], optional = true }
+zenoh-ros2-nostd = { path = "external/zenoh_ros2_nostd", default-features = false, features = [
+    "defmt",
+], optional = true }
+bme280 = { version = "0.5", features = ["defmt"], optional = true }
 
 [dev-dependencies]
 defmt-test = "0.4"
@@ -41,18 +92,21 @@ defmt-test = "0.4"
 name = "example_test"
 harness = false
 
-# Embassy examples (require "embassy" feature)
 [[example]]
-name = "embassy_blinky"
-required-features = ["embassy"]
+name = "sensor_read"
+required-features = ["sensor"]
 
 [[example]]
-name = "embassy_button"
-required-features = ["embassy"]
+name = "esp_hosted_spi_test"
+required-features = ["wifi"]
 
 [[example]]
-name = "embassy_multitask"
-required-features = ["embassy"]
+name = "wifi_zenoh_chatter"
+required-features = ["wifi"]
+
+[[example]]
+name = "wifi_zenoh_sensors"
+required-features = ["wifi", "sensor"]
 
 # cargo build/run
 [profile.dev]
@@ -63,6 +117,17 @@ incremental = false
 opt-level = 0
 overflow-checks = true
 
+# Optimize ALL dependencies at opt-level=2 (examples/src stay at opt-level=0).
+# Reasons:
+#   1. micropb-generated CtrlMsg::decode() has 64 oneof match arms.
+#      At opt-level=0 the compiler doesn't reuse stack slots → ~96 KB.
+#   2. Embassy async poll chains (executor/time/sync/rp/net) accumulate
+#      large stack frames at opt-level=0. The ioctl path has 6 nested
+#      async levels; unoptimized poll frames corrupt memory during decode.
+#   3. Standard embedded-Rust best practice for Cortex-M0+.
+[profile.dev.package."*"]
+opt-level = 2
+
 # cargo build/run --release
 [profile.release]
 codegen-units = 1
@@ -72,3 +137,8 @@ incremental = false
 lto = 'fat'
 opt-level = 3
 overflow-checks = false
+
+[patch.crates-io]
+embassy-net-driver = { path = "external/embassy/embassy-net-driver" }
+embassy-net-driver-channel = { path = "external/embassy/embassy-net-driver-channel" }
+embassy-time-driver = { path = "external/embassy/embassy-time-driver" }

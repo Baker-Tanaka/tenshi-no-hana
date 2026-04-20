@@ -1,17 +1,16 @@
-# 天使の鼻 (Angel's Nose) - ROS2 × Pico 2WD巡回ローバー
+# 天使の鼻 (Angel's Nose) - ROS2 × Baker link. Dev(RP2040) 巡回ローバー
 
-**ウィスキー樽の「天使の分け前」を嗅ぎながら、樽の中の水位まで監視する天使の鼻型巡回ロボット**
+**ウィスキー樽の「天使の分け前」を嗅ぎながら、樽の中の水位まで監視する巡回ロボット**
 
 ※完成イメージ
 
 ![完成イメージ](docs/img/image.png)
 
-
-（画像：Baker link. Dev + MQ-3 + BME280搭載のコンパクト2WDローバー。倉庫のウィスキー樽の中でエタノール蒸気を嗅ぎ回る姿）
+（画像：倉庫のウィスキー樽保管庫で嗅ぎ回る姿）
 
 ## コンセプト
-「天使の分け前（Angel's Share）」から派生した **「天使の鼻（Angel's Nose）」** プロジェクト。  
-2輪ローバーが蒸留所・熟成庫内を自律巡回し、空気中のアルコール濃度（エタノール蒸気）、温湿度、気圧を計測。さらに磁界センサーを使って樽内の液面（ウィスキーの減り具合）を非接触で測定します。
+「天使の分け前（Angel's Share）」ならぬ **「天使の鼻（Angel's Nose）」**。
+2輪ローバーが蒸留所・熟成庫内を自律巡回し、空気中のアルコール濃度（エタノール蒸気）、温湿度、気圧を計測。さらに磁界センサーを使って樽内の液面（ウィスキーの減り具合「天使の分け前」）を非接触で測定します。
 
 **bakerlink.dev + ROS2 + Embassy-rs (Rust)** を活用した、軽量・低コスト・無線対応のスマート監視システムです。
 
@@ -38,7 +37,7 @@
 
 ## 無線通信
 - **XIAO-ESP32-C3** を使用（ESP-Hosted-MCU）
-- [embassy-net-esp-hosted](https://github.com/embassy-rs/embassy/tree/embassy-net-esp-hosted-v0.3.0/embassy-net-esp-hosted) でRust/Embassy環境から快適にWi-Fi接続可能
+- `external/embassy` サブモジュール（`https://github.com/oktima/embassy-fork.git` の `upstream-esp-hosted-mcu`）に含まれる `embassy-net-esp-hosted` を使用
 
 ## ソフトウェア構成
 - **zenoh-ros2-nostd**
@@ -117,18 +116,6 @@
 | **D8**    | GPIO8  | 空き（⚠️ ストラッピング：未使用推奨） |
 | **D9**    | GPIO9  | 空き（⚠️ BOOTボタン：未使用推奨）     |
 
-### 注意事項
-
-1. **I2C デフォルトピンは SPI で占有**
-   - D4（GPIO6）= SDA、D5（GPIO7）= SCL は XIAO 標準の I2C ピンですが、SPI CLK / MOSI で使用しています。
-   - I2C センサー（BME280 等）はすべて **ホスト側（Baker link. Dev）の I2C** に接続してください。ESP32-C3 側に I2C デバイスは接続しません。
-
-2. **JTAG デバッグ不可**
-   - GPIO4〜7（D2〜D5）は JTAG ピン（MTMS/MTDI/MTCK/MTDO）ですが、SPI + 信号線で使い切っています。ESP32-C3 の JTAG デバッグはこの構成では使用できません。USB シリアル経由でのデバッグを使用してください。
-
-3. **Data Ready のデフォルト GPIO9 は使用不可**
-   - XIAO ESP32C3 では GPIO9 が **BOOT ボタン** に接続されているため、Data Ready は GPIO4（D2）に変更しています。
-
 ### menuconfig での設定手順
 
 ```powershell
@@ -150,3 +137,22 @@ idf.py menuconfig
 → 保存 → 再ビルド・フラッシュ。
 
 
+```bash
+# esp-hosted-mcu の slave サンプルを作成
+# (ESP-IDF v5.3 以降を想定)
+idf.py create-project-from-example "espressif/esp_hosted:slave"
+cd slave
+idf.py set-target esp32c3
+idf.py menuconfig
+# → Example Configuration → Bus Config in between Host and Co-processor
+#   → SPI Full-Duplex Configuration → GPIO設定:
+#   MISO=5, MOSI=7, CLK=6, CS=10, HS=3, DR=4
+#   Reset GPIO=21
+idf.py build flash
+```
+
+RP2040側の依存は本リポジトリのサブモジュールで管理します。
+
+```bash
+git submodule update --init --recursive external/embassy external/zenoh_ros2_nostd
+```

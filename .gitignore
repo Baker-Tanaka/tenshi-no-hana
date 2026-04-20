@@ -12,3 +12,6 @@ Cargo.lock
 
 # MSVC Windows builds of rustc generate these, which store debugging information
 *.pdb
+
+# WiFi credentials (contains SSID/password — never commit)
+wifi_config.json
