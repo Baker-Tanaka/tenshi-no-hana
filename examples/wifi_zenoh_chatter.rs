@@ -45,7 +45,7 @@ bind_interrupts!(struct Irqs {
     DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>, dma::InterruptHandler<DMA_CH1>;
 });
 
-const HELLO_TOPIC: TopicKeyExpr = msg::std_msgs::String::topic(0, "/hello");
+const CHATTER_TOPIC: TopicKeyExpr = msg::std_msgs::String::topic(0, "/chatter");
 const CDR_BUF_CAP: usize = cdr_cap_for_string(128);
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -53,8 +53,8 @@ struct StringMsg {
     data: String<128>,
 }
 
-static HELLO_PUB: Publisher<StringMsg, CDR_BUF_CAP, 4> = Publisher::new(HELLO_TOPIC);
-static HELLO_SUB: Subscription<StringMsg, CDR_BUF_CAP, 4> = Subscription::new();
+static CHATTER_PUB: Publisher<StringMsg, CDR_BUF_CAP, 4> = Publisher::new(CHATTER_TOPIC);
+static CHATTER_SUB: Subscription<StringMsg, CDR_BUF_CAP, 4> = Subscription::new();
 
 type MySpi = Spi<'static, SPI0, Async>;
 type MySpiDevice = ExclusiveDevice<MySpi, Output<'static>, Delay>;
@@ -152,6 +152,10 @@ async fn zenoh_task(stack: Stack<'static>) {
         while stack.config_v4().is_none() {
             Timer::after(Duration::from_millis(500)).await;
         }
+        if let Some(cfg) = stack.config_v4() {
+            let ip = cfg.address.address().octets();
+            info!("[wifi] IP: {}.{}.{}.{}", ip[0], ip[1], ip[2], ip[3]);
+        }
         info!("[zenoh] DHCP OK");
 
         let mut socket = TcpSocket::new(stack, tcp_rx, tcp_tx);
@@ -180,14 +184,14 @@ async fn zenoh_task(stack: Stack<'static>) {
             }
         };
 
-        if let Err(e) = node.register_static_publisher(&HELLO_PUB).await {
+        if let Err(e) = node.register_static_publisher(&CHATTER_PUB).await {
             error!("[zenoh] publisher reg failed: {}", e);
             reconnect.wait_and_advance().await;
             continue;
         }
 
-        HELLO_SUB.clear();
-        if let Err(e) = node.subscribe_with_dispatch(HELLO_TOPIC, &HELLO_SUB).await {
+        CHATTER_SUB.clear();
+        if let Err(e) = node.subscribe_with_dispatch(CHATTER_TOPIC, &CHATTER_SUB).await {
             error!("[zenoh] subscribe failed: {}", e);
             reconnect.wait_and_advance().await;
             continue;
@@ -210,13 +214,13 @@ async fn app_task() {
         );
         counter += 1;
 
-        if let Err(e) = HELLO_PUB.send(&StringMsg { data }).await {
+        if let Err(e) = CHATTER_PUB.send(&StringMsg { data }).await {
             error!("[app] publish error: {}", e);
         }
 
-        while let Some(result) = HELLO_SUB.try_recv() {
+        while let Some(result) = CHATTER_SUB.try_recv() {
             match result {
-                Ok(m) => info!("[app] /hello: {=str}", m.data.as_str()),
+                Ok(m) => info!("[app] /chatter: {=str}", m.data.as_str()),
                 Err(e) => warn!("[app] deserialize error: {}", e),
             }
         }
