@@ -21,23 +21,29 @@ mod wifi_config;
 use wifi_config::AppConfig;
 
 use bme280::i2c::BME280;
+use cortex_m_rt::exception;
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{DhcpConfig, Runner as NetRunner, Stack, StackResources};
 use embassy_net_esp_hosted_mcu::{
-    self, BufferType, EspConfig, MAX_SPI_BUFFER_SIZE, NetDriver, Runner as EspRunner, SpiInterface,
-    State,
+    self, BufferType, EspConfig, NetDriver, Runner as EspRunner, SpiInterface, State,
+    MAX_SPI_BUFFER_SIZE,
 };
 use embassy_rp::adc::{Adc, Channel, Config as AdcConfig, InterruptHandler as AdcIrqHandler};
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::i2c::{Blocking as I2cBlocking, Config as I2cConfig, I2c};
 use embassy_rp::spi::{Async as SpiAsync, Config as SpiConfig, Phase, Polarity, Spi};
 use embassy_rp::{bind_interrupts, dma, peripherals::*};
-use embassy_time::{Delay, Duration, Timer, with_timeout};
+use embassy_time::{with_timeout, Delay, Duration, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use panic_probe as _;
+
+#[exception]
+unsafe fn HardFault(_ef: &cortex_m_rt::ExceptionFrame) -> ! {
+    defmt::panic!("HardFault: possible stack overflow or bus fault (flip-link active)");
+}
 use static_cell::StaticCell;
 use zenoh_ros2_nostd::prelude::*;
 

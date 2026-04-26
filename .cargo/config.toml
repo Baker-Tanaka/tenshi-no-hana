@@ -9,8 +9,10 @@ rustflags = [
   "-C",
   "link-arg=-Tdefmt.x",
   # "-Z", "trap-unreachable=no",
-  "-C",
-  "llvm-args=--inline-threshold=5",
+  # Removed: "-C", "llvm-args=--inline-threshold=5"
+  # This threshold prevents inlining in micropb-generated Rpc::decode() (64+ oneof match arms).
+  # Without inlining, each decode_varint32/decode_tag call creates a separate stack frame,
+  # overflowing the Cortex-M0+ stack and causing HardFault with VarIntLimit as a symptom.
   "-C",
   "no-vectorize-loops",
 ]
