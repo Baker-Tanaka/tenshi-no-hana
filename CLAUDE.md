@@ -155,6 +155,51 @@ v0.9 は `embedded-io-async = "0.7"` を要求するが、`zenoh-ros2-nostd` は
 - [examples/CLAUDE.md](examples/CLAUDE.md) — esp-hosted-mcu 詳細ノート（WiFi examples / `src/wifi_config.rs` 編集時に自動適用）
 - [.claude/serialization.md](.claude/serialization.md) — `no_std` シリアライゼーション選択ガイド（`@.claude/serialization.md` で参照可能）
 
+## Memory Usage Analysis
+
+RP2040 メモリ制約: **FLASH 2048KB** (BOOT2 256B を除く実質 ~2047.75KB), **RAM 264KB**
+
+### Cargo alias（短縮形）
+
+```sh
+cargo size-default   # default feature (Embassy LED デモ)
+cargo size-wifi      # wifi_zenoh_chatter example
+cargo size-sensor    # sensor_read example
+cargo size-all       # wifi_zenoh_sensors example (最大構成)
+cargo nm-top         # ROM 使用量上位シンボル一覧
+```
+
+### フルコマンド（feature/example を変えたい場合）
+
+```sh
+# Berkeley format: text / data / bss / dec / hex の列を表示
+cargo size --release -- -B
+cargo size --no-default-features --features wifi --example wifi_zenoh_chatter --release -- -B
+
+# sysv format: セクション別詳細
+cargo size --release -- -A
+
+# シンボル別サイズ上位 30 件（ROM 肥大化の原因調査）
+cargo nm --release -- --print-size --size-sort --radix=d | grep ' [tT] ' | tail -30
+
+# セクションヘッダー確認
+cargo objdump --release -- --section-headers
+```
+
+### 出力の読み方
+
+| 列 | 意味 | 対応メモリ |
+|----|------|-----------|
+| `text` | コード + read-only data | FLASH |
+| `data` | 初期値あり変数 | FLASH (初期値格納) + RAM (実行時コピー) |
+| `bss` | ゼロ初期化変数 | RAM のみ |
+
+**ROM 使用量 = `text + data`** （上限 ~2,096,896 B）  
+**RAM 使用量 = `data + bss`** （上限 270,336 B = 264 KB）
+
+> flip-link 使用時は `.bss`/`.data` が RAM 末尾に配置され、スタックは下位アドレスから伸長する。
+> RAM がオーバーフローしてもスタック破壊より先にリンクエラーになる。
+
 ## Submodule Setup
 
 ```sh
