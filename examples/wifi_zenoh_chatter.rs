@@ -117,7 +117,8 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(net_task(net_runner).unwrap());
     spawner.spawn(zenoh_task(stack).unwrap());
-    spawner.spawn(app_task().unwrap());
+    spawner.spawn(publish_task().unwrap());
+    spawner.spawn(subscribe_task().unwrap());
 }
 
 #[embassy_executor::task]
@@ -204,7 +205,7 @@ async fn zenoh_task(stack: Stack<'static>) {
 }
 
 #[embassy_executor::task]
-async fn app_task() {
+async fn publish_task() {
     let mut counter: u32 = 0;
     loop {
         let mut data: String<128> = String::new();
@@ -215,16 +216,19 @@ async fn app_task() {
         counter += 1;
 
         if let Err(e) = CHATTER_PUB.send(&StringMsg { data }).await {
-            error!("[app] publish error: {}", e);
-        }
-
-        while let Some(result) = CHATTER_SUB.try_recv() {
-            match result {
-                Ok(m) => info!("[app] /chatter: {=str}", m.data.as_str()),
-                Err(e) => warn!("[app] deserialize error: {}", e),
-            }
+            error!("[pub] publish error: {}", e);
         }
 
         Timer::after(Duration::from_secs(5)).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn subscribe_task() {
+    loop {
+        match CHATTER_SUB.recv().await {
+            Ok(m) => info!("[sub] /chatter: {=str}", m.data.as_str()),
+            Err(e) => warn!("[sub] deserialize error: {}", e),
+        }
     }
 }

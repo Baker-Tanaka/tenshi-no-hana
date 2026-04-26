@@ -15,6 +15,8 @@ services:
         condition: service_healthy
       ros2-node:
         condition: service_started
+      ros2-talker:
+        condition: service_started
     networks:
       - zenoh-net
 
@@ -38,6 +40,30 @@ services:
       interval: 3s
       timeout: 3s
       retries: 10
+    networks:
+      - zenoh-net
+
+  # ROS2 publisher — sends std_msgs/String to /chatter every 1 s.
+  # Allows MCU CHATTER_SUB to receive messages and verify bidirectional comms.
+  ros2-talker:
+    build:
+      context: .
+      dockerfile: Dockerfile.ros2
+    container_name: ros2-talker
+    environment:
+      - RMW_IMPLEMENTATION=rmw_zenoh_cpp
+      - ZENOH_ROUTER_CHECK_ATTEMPTS=10
+      - ROS_DOMAIN_ID=0
+      - ZENOH_CONFIG_OVERRIDE=connect/endpoints=["tcp/zenoh-router:7447"]
+    depends_on:
+      zenoh-router:
+        condition: service_healthy
+    command: >
+      bash -c "
+        source /opt/ros/jazzy/setup.bash &&
+        export RMW_IMPLEMENTATION=rmw_zenoh_cpp &&
+        ros2 run demo_nodes_cpp talker
+      "
     networks:
       - zenoh-net
 
