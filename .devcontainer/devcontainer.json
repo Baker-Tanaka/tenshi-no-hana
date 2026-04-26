@@ -13,7 +13,8 @@
                 "probe-rs.probe-rs-debugger",
                 "tamasfe.even-better-toml",
                 "fill-labs.dependi",
-                "mhutchie.git-graph"
+                "mhutchie.git-graph",
+                "anthropic.claude-code"
             ]
         }
     }

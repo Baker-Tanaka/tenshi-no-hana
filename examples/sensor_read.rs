@@ -21,6 +21,7 @@ use embassy_rp::adc::{Adc, Channel, Config as AdcConfig, InterruptHandler as Adc
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::Pull;
 use embassy_rp::i2c::{Config as I2cConfig, I2c};
+use embedded_hal::i2c::I2c as _;
 use embassy_time::{Delay, Duration, Timer};
 use panic_probe as _;
 
@@ -37,13 +38,33 @@ async fn main(_spawner: Spawner) {
     info!("[main] Sensor read example start");
 
     // ── I2C0: GP4 (SDA), GP5 (SCL) → BME280 (blocking) ─────────────────────
-    let i2c = I2c::new_blocking(p.I2C0, p.PIN_5, p.PIN_4, I2cConfig::default());
-    let mut bme280 = BME280::new_primary(i2c);
+    let mut i2c = I2c::new_blocking(p.I2C0, p.PIN_5, p.PIN_4, I2cConfig::default());
 
+    // Probe BME280 chip ID register (0xD0) at both possible addresses.
+    // Expected: 0x60 = BME280, 0x58 = BMP280, no response = wiring issue.
+    info!("[i2c] probing BME280 (SDA=GP4, SCL=GP5)...");
+    let mut id_buf = [0u8; 1];
+    for &addr in &[0x76u8, 0x77u8] {
+        match i2c.write_read(addr, &[0xD0u8], &mut id_buf) {
+            Ok(()) => {
+                let id = id_buf[0];
+                if id == 0x60 {
+                    info!("[i2c] 0x{:02x}: chip_id=0x{:02x} — BME280 found", addr, id);
+                } else if id == 0x58 {
+                    warn!("[i2c] 0x{:02x}: chip_id=0x{:02x} — BMP280 (no humidity)", addr, id);
+                } else {
+                    warn!("[i2c] 0x{:02x}: chip_id=0x{:02x} — unexpected (not BME/BMP280)", addr, id);
+                }
+            }
+            Err(_) => info!("[i2c] 0x{:02x}: NACK (no device)", addr),
+        }
+    }
+
+    let mut bme280 = BME280::new_primary(i2c);
     match bme280.init(&mut Delay) {
-        Ok(()) => info!("[bme280] Initialized (addr=0x76)"),
+        Ok(()) => info!("[bme280] initialized (addr=0x76)"),
         Err(_) => {
-            error!("[bme280] Init failed — check wiring (SDA=GP4, SCL=GP5)");
+            error!("[bme280] init failed — check SDA=GP4/SCL=GP5 wiring and 3.3V pull-ups");
             loop {
                 Timer::after_secs(60).await;
             }

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 720" font-family="monospace" font-size="12">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 820" font-family="monospace" font-size="12">
   <title>Baker link.dev (RP2040) ↔ XIAO ESP32-C3 SPI Schematic</title>
   <defs>
     <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
@@ -213,28 +213,34 @@
   <line x1="130" y1="500" x2="130" y2="530" stroke="#4CAF50" stroke-width="1.5"/>
   <line x1="310" y1="500" x2="310" y2="530" stroke="#4CAF50" stroke-width="1.5"/>
 
+  <!-- IMU (optional) — second sensor row, shares I2C0 with BME280 -->
+  <rect class="sensor-box" x="400" y="625" width="200" height="70"/>
+  <text x="500" y="648" text-anchor="middle" font-size="12" font-weight="bold" fill="#2E7D32">IMU (オプション)</text>
+  <text x="500" y="663" text-anchor="middle" font-size="10" fill="#555">6軸 加速度・ジャイロ</text>
+  <text x="500" y="678" text-anchor="middle" font-size="10" fill="#555">I2C0: GP4(SDA) GP5(SCL) 共有</text>
+
   <!-- ═══════════════════════════════════════════════════════════════ -->
   <!-- Legend -->
   <!-- ═══════════════════════════════════════════════════════════════ -->
-  <rect class="legend-box" x="50" y="625" width="900" height="85"/>
-  <text x="70" y="645" font-size="12" font-weight="bold" fill="#333">凡例</text>
+  <rect class="legend-box" x="50" y="720" width="900" height="85"/>
+  <text x="70" y="740" font-size="12" font-weight="bold" fill="#333">凡例</text>
 
-  <line x1="70" y1="660" x2="120" y2="660" class="signal-line spi-line"/>
-  <text x="130" y="664" font-size="11" fill="#555">SPI バス (Full-Duplex)</text>
+  <line x1="70" y1="755" x2="120" y2="755" class="signal-line spi-line"/>
+  <text x="130" y="759" font-size="11" fill="#555">SPI バス (Full-Duplex)</text>
 
-  <line x1="290" y1="660" x2="340" y2="660" class="signal-line ctrl-line" stroke-dasharray="8,4"/>
-  <text x="350" y="664" font-size="11" fill="#555">制御信号 (Handshake/DR/Reset)</text>
+  <line x1="290" y1="755" x2="340" y2="755" class="signal-line ctrl-line" stroke-dasharray="8,4"/>
+  <text x="350" y="759" font-size="11" fill="#555">制御信号 (Handshake/DR/Reset)</text>
 
-  <line x1="570" y1="660" x2="620" y2="660" class="signal-line power-line" stroke-width="3"/>
-  <text x="630" y="664" font-size="11" fill="#555">電源 (3.3V)</text>
+  <line x1="570" y1="755" x2="620" y2="755" class="signal-line power-line" stroke-width="3"/>
+  <text x="630" y="759" font-size="11" fill="#555">電源 (3.3V)</text>
 
-  <line x1="740" y1="660" x2="790" y2="660" class="signal-line gnd-line" stroke-width="3"/>
-  <text x="800" y="664" font-size="11" fill="#555">GND</text>
+  <line x1="740" y1="755" x2="790" y2="755" class="signal-line gnd-line" stroke-width="3"/>
+  <text x="800" y="759" font-size="11" fill="#555">GND</text>
 
-  <text x="70" y="690" font-size="10" fill="#777">
-    SPI Mode: 0 (CPOL=0, CPHA=0) • Clock: 10 MHz • Full-Duplex • embassy-net-esp-hosted v0.3
+  <text x="70" y="785" font-size="10" fill="#777">
+    SPI Mode: 3 (CPOL=1, CPHA=1) • Clock: 10 MHz • Full-Duplex • embassy-net-esp-hosted-mcu (path dep)
   </text>
-  <text x="70" y="703" font-size="10" fill="#777">
+  <text x="70" y="798" font-size="10" fill="#777">
     ESP32-C3: esp-hosted-mcu firmware (SPI slave) • RP2040: SPI master via embassy-rp async SPI0
   </text>
 </svg>

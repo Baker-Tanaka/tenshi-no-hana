@@ -30,9 +30,9 @@
 | Baker link. Dev      | -                                                    | ¥1,980           | [スイッチサイエンス](https://www.switch-science.com/products/10044) | Embassy-rsでRust no_std完璧対応      |
 | モータドライバ       | デュアルモータードライバDRV8835                      | ¥400〜1,395      | [秋月電子](https://akizukidenshi.com/catalog/g/g109848/)            | PWM直駆動に最適                      |
 | エタノールセンサー   | MQ-3B (またはMQ-3モジュール)                         | ¥450             | [秋月電子](https://akizukidenshi.com/catalog/g/g116269/)            | 天使の分け前検知の主役               |
-| 温湿度・気圧センサー | BME280 モジュール (AE-BME280)                        | ¥1,080〜1,380    | [秋月電子](https://akizukidenshi.com/catalog/g/g109421/)            | 蒸発量補正に必須                     |
-| IMU (オプション)     | 6軸IMUセンサーモジュール                             | ¥990             | [秋月電子](https://akizukidenshi.com/catalog/g/g130950/)            | odom計算・姿勢推定用                 |
-| 超音波センサー       | HC-SR04                                              | ¥300             | [秋月電子](https://akizukidenshi.com/catalog/g/g111009/)            | 障害物回避                           |
+| 温湿度・気圧センサー | BME280 モジュール (AE-BME280)                        | ¥1,650           | [スイッチサイエンス](https://www.switch-science.com/products/2236)  | 蒸発量補正に必須                     |
+| IMU (オプション)     | 6軸IMUセンサーモジュール                             | ¥990             | [スイッチサイエンス](https://www.switch-science.com/products/8695)  | odom計算・姿勢推定用                 |
+| 超音波センサー       |                                                      | ¥300             | [スイッチサイエンス](https://www.switch-science.com/products/8224/) | 障害物回避                           |
 
 
 ```

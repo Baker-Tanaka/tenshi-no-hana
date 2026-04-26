@@ -52,8 +52,6 @@ bind_interrupts!(struct Irqs {
     ADC_IRQ_FIFO => AdcIrqHandler;
 });
 
-// ── ROS2 topic definitions ───────────────────────────────────────────────────
-
 const TEMP_TOPIC: TopicKeyExpr = msg::std_msgs::Float32Type::topic(0, "angel_nose/temperature");
 const HUMI_TOPIC: TopicKeyExpr = msg::std_msgs::Float32Type::topic(0, "angel_nose/humidity");
 const PRES_TOPIC: TopicKeyExpr = msg::std_msgs::Float32Type::topic(0, "angel_nose/pressure");
@@ -64,22 +62,15 @@ static HUMI_PUB: Publisher<msg::std_msgs::Float32Msg, 8, 4> = Publisher::new(HUM
 static PRES_PUB: Publisher<msg::std_msgs::Float32Msg, 8, 4> = Publisher::new(PRES_TOPIC);
 static ETOH_PUB: Publisher<msg::std_msgs::Float32Msg, 8, 4> = Publisher::new(ETOH_TOPIC);
 
-// ── Type aliases ─────────────────────────────────────────────────────────────
-
 type MySpi = Spi<'static, SPI0, SpiAsync>;
 type MySpiDevice = ExclusiveDevice<MySpi, Output<'static>, Delay>;
 type MySpiIface = SpiInterface<MySpiDevice, Input<'static>>;
 type MyEspRunner = EspRunner<'static, MySpiIface, Output<'static>>;
-
 type MyI2c = I2c<'static, I2C0, I2cBlocking>;
 type MyBme280 = BME280<MyI2c>;
 
-// ── Static storage ───────────────────────────────────────────────────────────
-
 static ESP_STATE: StaticCell<State> = StaticCell::new();
 static STACK_RESOURCES: StaticCell<StackResources<4>> = StaticCell::new();
-
-// ── Entry point ──────────────────────────────────────────────────────────────
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -87,7 +78,6 @@ async fn main(spawner: Spawner) {
     Timer::after(Duration::from_millis(500)).await;
     info!("[main] start");
 
-    // ── SPI0 (esp-hosted) ────────────────────────────────────────────────────
     let mut spi_cfg = SpiConfig::default();
     spi_cfg.frequency = 10_000_000;
     spi_cfg.polarity = Polarity::IdleHigh; // CPOL=1
@@ -104,14 +94,12 @@ async fn main(spawner: Spawner) {
     let spi_dev = ExclusiveDevice::new(spi, cs, Delay).unwrap();
     let spi_iface = SpiInterface::new(spi_dev, handshake, data_ready);
 
-    // ── ESP-Hosted driver ────────────────────────────────────────────────────
     let esp_state = ESP_STATE.init(State::new());
     let (net_device, mut control, esp_runner) =
         embassy_net_esp_hosted_mcu::new(esp_state, spi_iface, reset, None).await;
 
     spawner.spawn(esp_hosted_task(esp_runner).unwrap());
 
-    // ── WiFi connect ─────────────────────────────────────────────────────────
     let cfg = AppConfig::new();
     info!("[wifi] connecting to \"{}\"...", cfg.wifi_ssid);
     let esp_config = EspConfig {
@@ -128,7 +116,6 @@ async fn main(spawner: Spawner) {
     defmt::assert!(connected, "WiFi association failed");
     info!("[wifi] connected");
 
-    // ── Network stack ────────────────────────────────────────────────────────
     let (stack, net_runner) = embassy_net::new(
         net_device,
         embassy_net::Config::dhcpv4(DhcpConfig::default()),
@@ -136,7 +123,6 @@ async fn main(spawner: Spawner) {
         0x1234_5678_9abc_def0u64,
     );
 
-    // ── I2C0: GP4 (SDA), GP5 (SCL) → BME280 (blocking) ──────────────────────
     let i2c = I2c::new_blocking(p.I2C0, p.PIN_5, p.PIN_4, I2cConfig::default());
     let mut bme280: MyBme280 = BME280::new_primary(i2c);
     match bme280.init(&mut Delay) {
@@ -144,17 +130,13 @@ async fn main(spawner: Spawner) {
         Err(_) => error!("[bme280] init failed — check wiring"),
     }
 
-    // ── ADC0: GP26 → MQ-3B ───────────────────────────────────────────────────
     let adc = Adc::new(p.ADC, Irqs, AdcConfig::default());
     let mq3_ch = Channel::new_pin(p.PIN_26, Pull::None);
 
-    // ── Spawn tasks ───────────────────────────────────────────────────────────
     spawner.spawn(net_task(net_runner).unwrap());
     spawner.spawn(zenoh_task(stack).unwrap());
     spawner.spawn(sensor_task(bme280, adc, mq3_ch).unwrap());
 }
-
-// ── Tasks ─────────────────────────────────────────────────────────────────────
 
 #[embassy_executor::task]
 async fn esp_hosted_task(runner: MyEspRunner) {
@@ -234,7 +216,6 @@ async fn zenoh_task(stack: Stack<'static>) {
     }
 }
 
-/// Read BME280 + MQ-3 and publish to Zenoh/ROS2 every 5 seconds.
 #[embassy_executor::task]
 async fn sensor_task(
     mut bme280: MyBme280,
