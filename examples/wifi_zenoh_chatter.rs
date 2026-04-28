@@ -185,14 +185,14 @@ async fn zenoh_task(stack: Stack<'static>) {
             }
         };
 
-        if let Err(e) = node.register_static_publisher(&CHATTER_PUB).await {
+        if let Err(e) = node.create_publisher(&CHATTER_PUB).await {
             error!("[zenoh] publisher reg failed: {}", e);
             reconnect.wait_and_advance().await;
             continue;
         }
 
         CHATTER_SUB.clear();
-        if let Err(e) = node.subscribe_with_dispatch(CHATTER_TOPIC, &CHATTER_SUB).await {
+        if let Err(e) = node.create_subscription(CHATTER_TOPIC, &CHATTER_SUB).await {
             error!("[zenoh] subscribe failed: {}", e);
             reconnect.wait_and_advance().await;
             continue;

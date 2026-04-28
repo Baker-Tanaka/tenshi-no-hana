@@ -199,10 +199,10 @@ async fn zenoh_task(stack: Stack<'static>) {
         };
 
         let pubs = [
-            node.register_static_publisher(&TEMP_PUB).await,
-            node.register_static_publisher(&HUMI_PUB).await,
-            node.register_static_publisher(&PRES_PUB).await,
-            node.register_static_publisher(&ETOH_PUB).await,
+            node.create_publisher(&TEMP_PUB).await,
+            node.create_publisher(&HUMI_PUB).await,
+            node.create_publisher(&PRES_PUB).await,
+            node.create_publisher(&ETOH_PUB).await,
         ];
         if pubs.iter().any(|r| r.is_err()) {
             error!("[zenoh] publisher registration failed");
