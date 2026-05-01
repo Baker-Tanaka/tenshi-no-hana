@@ -110,7 +110,7 @@
             "coreConfigs": [
                 {
                     "coreIndex": 0,
-                    "programBinary": "tenshi-no-hana/target/thumbv6m-none-eabi/debug/examples/${input:wifiSensorExample}",
+                    "programBinary": "tenshi-no-hana/target/thumbv6m-none-eabi/debug/examples/wifi_zenoh_sensors",
                     "rttEnabled": true,
                 }
             ],
@@ -156,15 +156,6 @@
                 "wifi_zenoh_chatter"
             ],
             "default": "esp_hosted_spi_test"
-        },
-        {
-            "id": "wifiSensorExample",
-            "description": "WiFi + Sensor example name",
-            "type": "pickString",
-            "options": [
-                "wifi_zenoh_sensors"
-            ],
-            "default": "wifi_zenoh_sensors"
         }
     ]
 }

@@ -43,7 +43,7 @@
         {
             "label": "cargo: build wifi+sensor example",
             "type": "shell",
-            "command": "cargo build --no-default-features --features wifi,sensor --example ${input:wifiSensorExample}",
+            "command": "cargo build --no-default-features --features wifi,sensor --example wifi_zenoh_sensors",
             "group": "build",
             "problemMatcher": [
                 "$rustc"
@@ -139,15 +139,6 @@
                 "wifi_zenoh_chatter"
             ],
             "default": "esp_hosted_spi_test"
-        },
-        {
-            "id": "wifiSensorExample",
-            "description": "WiFi + Sensor example name",
-            "type": "pickString",
-            "options": [
-                "wifi_zenoh_sensors"
-            ],
-            "default": "wifi_zenoh_sensors"
         }
     ]
 }
