@@ -58,6 +58,9 @@ bind_interrupts!(struct Irqs {
     // IO_IRQ_BANK0: embassy-rp 0.10 registers this internally; no bind needed.
 });
 
+/// Sensor sampling interval.  Edit this value and recompile to change the period.
+const SAMPLE_PERIOD_MS: u64 = 1_000;
+
 const TEMP_TOPIC: TopicKeyExpr = msg::std_msgs::Float32Type::topic(0, "angel_nose/temperature");
 const HUMI_TOPIC: TopicKeyExpr = msg::std_msgs::Float32Type::topic(0, "angel_nose/humidity");
 const PRES_TOPIC: TopicKeyExpr = msg::std_msgs::Float32Type::topic(0, "angel_nose/pressure");
@@ -272,17 +275,11 @@ async fn sensor_task(
                     "[sensor] #{}: T={} °C  H={} %  P={} hPa",
                     count, m.temperature, m.humidity, pres
                 );
-                let _ = TEMP_PUB
-                    .send(&msg::std_msgs::Float32Msg {
-                        data: m.temperature,
-                    })
-                    .await;
-                let _ = HUMI_PUB
-                    .send(&msg::std_msgs::Float32Msg { data: m.humidity })
-                    .await;
-                let _ = PRES_PUB
-                    .send(&msg::std_msgs::Float32Msg { data: pres })
-                    .await;
+                let _ = TEMP_PUB.try_send(&msg::std_msgs::Float32Msg {
+                    data: m.temperature,
+                });
+                let _ = HUMI_PUB.try_send(&msg::std_msgs::Float32Msg { data: m.humidity });
+                let _ = PRES_PUB.try_send(&msg::std_msgs::Float32Msg { data: pres });
             }
             Err(_) => warn!("[sensor] #{}: BME280 read failed", count),
         }
@@ -292,9 +289,7 @@ async fn sensor_task(
             Ok(raw) => {
                 let voltage = raw as f32 * 3.3 / 4096.0;
                 info!("[sensor] #{}: MQ-3 raw={} V={}", count, raw, voltage);
-                let _ = ETOH_PUB
-                    .send(&msg::std_msgs::Float32Msg { data: voltage })
-                    .await;
+                let _ = ETOH_PUB.try_send(&msg::std_msgs::Float32Msg { data: voltage });
             }
             Err(_) => warn!("[sensor] #{}: MQ-3 ADC failed", count),
         }
@@ -303,16 +298,20 @@ async fn sensor_task(
         match hcsr04_measure(&mut trig, &mut echo).await {
             Some(dist_m) => {
                 info!("[sensor] #{}: HC-SR04 dist={} m", count, dist_m);
-                let _ = RANGE_PUB
-                    .send(&msg::sensor_msgs::RangeMsg {
+                if RANGE_PUB
+                    .try_send(&msg::sensor_msgs::RangeMsg {
                         header: msg::sensor_msgs::Header::zero(),
                         radiation_type: msg::sensor_msgs::RANGE_ULTRASOUND,
                         field_of_view: 0.2618_f32, // HC-SR04 ~15° half-angle
                         min_range: 0.02_f32,
                         max_range: 4.0_f32,
                         range: dist_m,
+                        variance: 0.0_f32,
                     })
-                    .await;
+                    .is_err()
+                {
+                    warn!("[sensor] #{}: range msg dropped (queue full)", count);
+                }
             }
             None => warn!("[sensor] #{}: HC-SR04 echo timeout", count),
         }
@@ -324,8 +323,8 @@ async fn sensor_task(
                     "[sensor] #{}: IMU accel=({} {} {}) gyro=({} {} {})",
                     count, ax as f32, ay as f32, az as f32, gx as f32, gy as f32, gz as f32
                 );
-                let _ = IMU_PUB
-                    .send(&msg::sensor_msgs::ImuMsg {
+                if IMU_PUB
+                    .try_send(&msg::sensor_msgs::ImuMsg {
                         header: msg::sensor_msgs::Header::zero(),
                         orientation: msg::sensor_msgs::Quaternion::IDENTITY,
                         // orientation_covariance[0]=-1 signals unknown (REP-145)
@@ -343,7 +342,10 @@ async fn sensor_task(
                         },
                         linear_acceleration_covariance: [0.0; 9],
                     })
-                    .await;
+                    .is_err()
+                {
+                    warn!("[sensor] #{}: imu msg dropped (queue full)", count);
+                }
             }
             Err(()) => {
                 warn!("[sensor] #{}: ICM-20602 read failed — re-waking", count);
@@ -352,7 +354,7 @@ async fn sensor_task(
             }
         }
 
-        Timer::after(Duration::from_secs(5)).await;
+        Timer::after(Duration::from_millis(SAMPLE_PERIOD_MS)).await;
     }
 }
 
@@ -397,7 +399,10 @@ async fn icm20602_init(i2c: &mut impl I2cTrait) -> Result<(), ()> {
             error!("[imu] probe: no response at 0x68 (device absent or bus error)");
             // Try alternate address (AD0 pin HIGH → 0x69)
             match i2c.write_read(0x69, &[0x75], &mut id) {
-                Ok(()) => warn!("[imu] probe: device at 0x69 (AD0=HIGH) WHO_AM_I=0x{:02X} — update addr", id[0]),
+                Ok(()) => warn!(
+                    "[imu] probe: device at 0x69 (AD0=HIGH) WHO_AM_I=0x{:02X} — update addr",
+                    id[0]
+                ),
                 Err(_) => error!("[imu] probe: no response at 0x68 or 0x69"),
             }
             return Err(());
@@ -406,7 +411,7 @@ async fn icm20602_init(i2c: &mut impl I2cTrait) -> Result<(), ()> {
 
     // Step 2: Clear SLEEP bit (PWR_MGMT_1 = 0x01, CLKSEL=auto-PLL)
     match i2c.write(0x68, &[0x6B, 0x01]) {
-        Ok(()) => {},
+        Ok(()) => {}
         Err(_) => {
             error!("[imu] write PWR_MGMT_1 NACK (device read-only? wrong address?)");
             return Err(());
@@ -417,7 +422,7 @@ async fn icm20602_init(i2c: &mut impl I2cTrait) -> Result<(), ()> {
 
     // Step 3: Confirm WHO_AM_I after wake
     match i2c.write_read(0x68, &[0x75], &mut id) {
-        Ok(()) => {},
+        Ok(()) => {}
         Err(_) => {
             error!("[imu] WHO_AM_I read after wake failed");
             return Err(());
