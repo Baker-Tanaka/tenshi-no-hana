@@ -15,3 +15,5 @@ Cargo.lock
 
 # WiFi credentials (contains SSID/password — never commit)
 wifi_config.json
+
+cad/tenshi_no_hana/tenshi_no_hana-backups/
