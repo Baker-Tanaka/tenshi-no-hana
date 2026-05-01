@@ -1,6 +1,6 @@
 // sensor_read.rs — BME280 + MQ-3 sensor reading with Embassy
 //
-// Baker link.dev (RP2040) reads:
+// Baker link. Dev (RP2040) reads:
 //   - BME280 (I2C0: GP4 SDA, GP5 SCL) → temperature, humidity, pressure
 //   - MQ-3B  (ADC0: GP26)              → ethanol vapor analog voltage
 //
@@ -21,8 +21,8 @@ use embassy_rp::adc::{Adc, Channel, Config as AdcConfig, InterruptHandler as Adc
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::Pull;
 use embassy_rp::i2c::{Config as I2cConfig, I2c};
-use embedded_hal::i2c::I2c as _;
 use embassy_time::{Delay, Duration, Timer};
+use embedded_hal::i2c::I2c as _;
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
@@ -51,9 +51,15 @@ async fn main(_spawner: Spawner) {
                 if id == 0x60 {
                     info!("[i2c] 0x{:02x}: chip_id=0x{:02x} — BME280 found", addr, id);
                 } else if id == 0x58 {
-                    warn!("[i2c] 0x{:02x}: chip_id=0x{:02x} — BMP280 (no humidity)", addr, id);
+                    warn!(
+                        "[i2c] 0x{:02x}: chip_id=0x{:02x} — BMP280 (no humidity)",
+                        addr, id
+                    );
                 } else {
-                    warn!("[i2c] 0x{:02x}: chip_id=0x{:02x} — unexpected (not BME/BMP280)", addr, id);
+                    warn!(
+                        "[i2c] 0x{:02x}: chip_id=0x{:02x} — unexpected (not BME/BMP280)",
+                        addr, id
+                    );
                 }
             }
             Err(_) => info!("[i2c] 0x{:02x}: NACK (no device)", addr),

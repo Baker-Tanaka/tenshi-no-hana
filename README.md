@@ -1,169 +1,155 @@
-# 天使の鼻 (Angel's Nose) - ROS2 × Baker link. Dev(RP2040) 巡回ローバー
+# Angel's Nose - ROS2 × Baker link. Dev × Rover
 
-**ウィスキー樽の「天使の分け前」を嗅ぎながら、樽の中の水位まで監視する巡回ロボット**
+**A whiskey barrel patrol rover that detects alcohol vapor, environmental conditions, and barrel liquid level.**
 
-※完成イメージ
+![Project preview](docs/img/image.png)
 
-![完成イメージ](docs/img/image.png)
+![System diagram](docs/img/tenshi_no_hana_rover_v2.svg)
 
-（画像：倉庫のウィスキー樽保管庫で嗅ぎ回る姿）
+> 日本語版はこちら: [README.ja.md](./README.ja.md)
 
-※構成イメージ
+## Overview
+Angel's Nose is a compact 2-wheel rover based on the Baker link. Dev(RP2040) board. It patrols distilleries and barrel aging warehouses, detects ethanol vapor, measures temperature, humidity, and pressure, and estimates barrel liquid surface using magnetic sensing.
 
-![構成イメージ](docs/img/tenshi_no_hana_rover_v2.svg)
+This project combines:
+- **Baker link. Dev (RP2040)**
+- **XIAO-ESP32-C3 as a Wi-Fi ESP-hosted MCU**
+- **Embassy-rs no_std async runtime**
+- **zenoh-ros2-nostd** for ROS2-compatible messaging
 
-## コンセプト
-「天使の分け前（Angel's Share）」ならぬ **「天使の鼻（Angel's Nose）」**。
-2輪ローバーが蒸留所・熟成庫内を自律巡回し、空気中のアルコール濃度（エタノール蒸気）、温湿度、気圧を計測。さらに磁界センサーを使って樽内の液面（ウィスキーの減り具合「天使の分け前」）を非接触で測定します。
+## Key features
+- Ethanol vapor detection as a proxy for the barrel's "angel's share"
+- Environmental sensing with temperature, humidity, and pressure
+- Non-contact barrel liquid level sensing using a floating magnet and magnetic field sensor
+- Wi-Fi communication via XIAO-ESP32-C3
+- Low-cost and lightweight no_std embedded design
 
-**bakerlink.dev + ROS2 + Embassy-rs (Rust)** を活用した、軽量・低コスト・無線対応のスマート監視システムです。
+## Hardware bill of materials
+Estimated Japan-focused pricing as of April 2026.
 
-## 主な特徴
-- エタノール蒸気（天使の分け前）検知
-- 温湿度・気圧センシング（蒸発量補正用）
-- 磁界センサーによる樽内液面（水位）測定（浮遊ネオジム磁石方式）
-- ROS2（またはEmbassy-rs）による制御・ナビゲーション
-- XIAO-ESP32-C3によるWi-Fi/無線通信
-- 低コスト（本体6,500〜9,500円程度）
-
-## ハードウェア BOM（最安志向・日本国内中心・2026年4月時点）
-
-| 部品名               | 具体品番・おすすめ                                   | 価格目安（税込） | 購入URL                                                             | 備考                                 |
-| -------------------- | ---------------------------------------------------- | ---------------- | ------------------------------------------------------------------- | ------------------------------------ |
-| 2WDロボットシャーシ  | FT-DC-002 / 2WD Mini Smart Robot Mobile Platform Kit | ¥1,900           | [秋月電子](https://akizukidenshi.com/catalog/g/g113651/)            | モーター付き、エンコーダ無し版もあり |
-| Baker link. Dev      | -                                                    | ¥1,980           | [スイッチサイエンス](https://www.switch-science.com/products/10044) | Embassy-rsでRust no_std完璧対応      |
-| モータドライバ       | デュアルモータードライバDRV8835                      | ¥400〜1,395      | [秋月電子](https://akizukidenshi.com/catalog/g/g109848/)            | PWM直駆動に最適                      |
-| エタノールセンサー   | MQ-3B (またはMQ-3モジュール)                         | ¥450             | [秋月電子](https://akizukidenshi.com/catalog/g/g116269/)            | 天使の分け前検知の主役               |
-| 温湿度・気圧センサー | BME280 モジュール (AE-BME280)                        | ¥1,650           | [スイッチサイエンス](https://www.switch-science.com/products/2236)  | 蒸発量補正に必須                     |
-| IMU (オプション)     | 6軸IMUセンサーモジュール                             | ¥990             | [スイッチサイエンス](https://www.switch-science.com/products/8695)  | odom計算・姿勢推定用                 |
-| 超音波センサー       |                                                      | ¥300             | [スイッチサイエンス](https://www.switch-science.com/products/8224/) | 障害物回避                           |
-
+| Part               | Example                                              | Approx. Price | Link                                                            | Notes                                           |
+| ------------------ | ---------------------------------------------------- | ------------- | --------------------------------------------------------------- | ----------------------------------------------- |
+| 2WD robot chassis  | FT-DC-002 / 2WD Mini Smart Robot Mobile Platform Kit | ¥1,900        | [Akizuki](https://akizukidenshi.com/catalog/g/g113651/)         | Includes motors; encoder-free version available |
+| Baker link. Dev    | -                                                    | ¥1,980        | [Switch Science](https://www.switch-science.com/products/10044) | Native Embassy-rs / Rust no_std support         |
+| Motor driver       | DRV8835 dual motor driver                            | ¥400–1,395    | [Akizuki](https://akizukidenshi.com/catalog/g/g109848/)         | Ideal for direct PWM motor control              |
+| Ethanol sensor     | MQ-3B or MQ-3 module                                 | ¥450          | [Akizuki](https://akizukidenshi.com/catalog/g/g116269/)         | Main sensor for vapor detection                 |
+| Environment sensor | BME280 module (AE-BME280)                            | ¥1,650        | [Switch Science](https://www.switch-science.com/products/2236)  | Required for evaporation compensation           |
+| Optional IMU       | 6-axis IMU module                                    | ¥990          | [Switch Science](https://www.switch-science.com/products/8695)  | Useful for odometry and attitude estimation     |
+| Ultrasonic sensor  | -                                                    | ¥300          | [Switch Science](https://www.switch-science.com/products/8224/) | For obstacle avoidance                          |
 
 ```
 GPIOs: CLK:6 MOSI:7 MISO:5 CS:10 HS:3 DR:4
 ```
 
-## 配線図
+## Wiring
 
 ![](docs/schematics/baker_link_esp32c3_spi.svg)
 
-## 無線通信
-- **XIAO-ESP32-C3** を使用（ESP-Hosted-MCU）
-- `external/embassy` サブモジュール（`https://github.com/oktima/embassy-fork.git` の `upstream-esp-hosted-mcu`）に含まれる `embassy-net-esp-hosted` を使用
+## Wireless stack
+- Uses **XIAO-ESP32-C3** with ESP-hosted MCU firmware
+- Uses the `external/embassy` submodule and `embassy-net-esp-hosted` from the `upstream-esp-hosted-mcu` fork
 
-## ソフトウェア構成
-- **zenoh-ros2-nostd**
-- カスタムメッセージ：`angel_nose_msgs`（エタノール濃度、液面高さ、環境データ）
+## Software stack
+- `zenoh-ros2-nostd`
+- Custom message support for `angel_nose_msgs` (ethanol level, liquid height, environment data)
 
-## 設置・測定方法
-1. 樽の横に固定距離で横付け（ArUcoマーカー or AprilTag推奨）
-2. 浮遊コルク＋ネオジム磁石で液面を磁場強度として検知（ホールセンサー or 3軸磁力計使用）
-3. MQ-3で周囲エタノール蒸気濃度を「鼻」で嗅ぐ
+## How it works
+1. Position the rover at a fixed distance from the barrel. ArUco or AprilTag tracking is recommended.
+2. Measure barrel liquid level with a floating cork and neodymium magnet using magnetic field sensing.
+3. Use the MQ-3 sensor to "sniff" ambient ethanol vapor.
 
-## 今後の拡張予定
-- 複数樽自動巡回マッピング
-- 液面データから天使の分け前蒸発量の推定
-- Webダッシュボード（蒸留所監視用）
-- 完全Rust no_std実装
+## Future work
+- Autonomous mapping and multi-barrel patrol
+- Estimating evaporation volume from liquid level data
+- Web dashboard for distillery monitoring
+- Full Rust no_std implementation across the stack
 
----
+## ESP32-Hosted (ESP32-C3) pin mapping
+Pin assignments are extracted from `sdkconfig`.
 
-**関連リンク**：  
-- X: [@BakerlinkLab](https://x.com/BakerlinkLab)
+> Reference: [Seeed Studio XIAO ESP32C3 Getting Started](https://wiki.seeedstudio.com/XIAO_ESP32_C3_Getting_Started/)
 
----
+### XIAO ESP32C3 GPIO ↔ physical pin mapping
 
-「天使の鼻で、ウィスキーの息吹を嗅ぐ。」🥃✨
-配線図・回路図・キャリブレーション方法・ROS2パッケージが完成したら、随時追加していきます！
+| XIAO pin | GPIO   | Default function | Notes                         |
+| -------- | ------ | ---------------- | ----------------------------- |
+| D0       | GPIO2  | ADC              | ⚠️ Strapping pin               |
+| D1       | GPIO3  | ADC              |                               |
+| D2       | GPIO4  | ADC              | MTMS (JTAG)                   |
+| D3       | GPIO5  | ADC              | MTDI (JTAG)                   |
+| D4       | GPIO6  | SDA (I2C)        | FSPICLK, MTCK (JTAG)          |
+| D5       | GPIO7  | SCL (I2C)        | FSPID, MTDO (JTAG)            |
+| D6       | GPIO21 | UART TX          |                               |
+| D7       | GPIO20 | UART RX          |                               |
+| D8       | GPIO8  | SPI SCK          | ⚠️ Strapping pin               |
+| D9       | GPIO9  | SPI MISO         | ⚠️ Strapping pin / BOOT button |
+| D10      | GPIO10 | SPI MOSI         | FSPICS0                       |
 
-## ESP32-Hosted（ESP32-C3）
+### Recommended esp-hosted slave wiring
 
-`sdkconfig` から、現在のピンアサインを抜き出しました。
+> Avoid all strapping pins (GPIO2/8/9) for stable operation.
 
-> **参考**: [Seeed Studio XIAO ESP32C3 Getting Started](https://wiki.seeedstudio.com/XIAO_ESP32C3_Getting_Started/)
+| Signal     | GPIO   | XIAO pin | Purpose                   |
+| ---------- | ------ | -------- | ------------------------- |
+| SPI MOSI   | GPIO7  | D5       | Required                  |
+| SPI MISO   | GPIO5  | D3       | Required                  |
+| SPI CLK    | GPIO6  | D4       | Required                  |
+| SPI CS     | GPIO10 | D10      | Required                  |
+| Handshake  | GPIO3  | D1       | Timing sync               |
+| Data Ready | GPIO4  | D2       | Data arrival notification |
+| Reset      | GPIO21 | D6       | Recommended               |
 
-### XIAO ESP32C3 GPIO ↔ 物理ピン対応表
+#### Changes from previous wiring
 
-| XIAO ピン | GPIO   | デフォルト機能 | 備考                                  |
-| --------- | ------ | -------------- | ------------------------------------- |
-| **D0**    | GPIO2  | ADC            | ⚠️ **ストラッピングピン**              |
-| **D1**    | GPIO3  | ADC            |                                       |
-| **D2**    | GPIO4  | ADC            | MTMS (JTAG)                           |
-| **D3**    | GPIO5  | ADC            | MTDI (JTAG)                           |
-| **D4**    | GPIO6  | **SDA (I2C)**  | FSPICLK, MTCK (JTAG)                  |
-| **D5**    | GPIO7  | **SCL (I2C)**  | FSPID, MTDO (JTAG)                    |
-| **D6**    | GPIO21 | TX (UART)      |                                       |
-| **D7**    | GPIO20 | RX (UART)      |                                       |
-| **D8**    | GPIO8  | SPI SCK        | ⚠️ **ストラッピングピン**              |
-| **D9**    | GPIO9  | SPI MISO       | ⚠️ **ストラッピングピン / BOOTボタン** |
-| **D10**   | GPIO10 | SPI MOSI       | FSPICS0                               |
+| Signal   | Old GPIO   | New GPIO    | Reason                                   |
+| -------- | ---------- | ----------- | ---------------------------------------- |
+| SPI MISO | GPIO2 (D0) | GPIO5 (D3)  | Avoid strapping pin and boot instability |
+| Reset    | none       | GPIO21 (D6) | Add host reset control                   |
 
-### Seeed Studio XIAO ESP32C3 の esp-hosted Slave ピン割り当て（推奨構成）
+#### Spare pins
 
-> ストラッピングピン（GPIO2/8/9）を **すべて回避** した安全な構成です。
+| XIAO pin | GPIO   | Notes                            |
+| -------- | ------ | -------------------------------- |
+| D0       | GPIO2  | Spare, but avoid strapping pin   |
+| D7       | GPIO20 | Spare UART RX for debugging      |
+| D8       | GPIO8  | Spare, but avoid strapping pin   |
+| D9       | GPIO9  | Spare, but avoid BOOT button pin |
 
-| 信号名         | GPIO   | XIAO 物理ピン | 接続方式        | 用途                   |
-| -------------- | ------ | ------------- | --------------- | ---------------------- |
-| **SPI MOSI**   | GPIO7  | **D5**        | FSPID（専用）   | 必須                   |
-| **SPI MISO**   | GPIO5  | **D3**        | GPIO Matrix     | 必須                   |
-| **SPI CLK**    | GPIO6  | **D4**        | FSPICLK（専用） | 必須                   |
-| **SPI CS**     | GPIO10 | **D10**       | FSPICS0（専用） | 必須                   |
-| **Handshake**  | GPIO3  | **D1**        | GPIO            | 重要（タイミング同期） |
-| **Data Ready** | GPIO4  | **D2**        | GPIO            | 重要（データ到着通知） |
-| **Reset**      | GPIO21 | **D6**        | GPIO            | 推奨（リセット制御）   |
-
-#### 旧構成からの変更点
-
-| 信号名   | 旧 GPIO      | 新 GPIO      | 変更理由                                    |
-| -------- | ------------ | ------------ | ------------------------------------------- |
-| SPI MISO | GPIO2（D0）⚠️ | GPIO5（D3）  | GPIO2 はストラッピングピン → 起動不安定回避 |
-| Reset    | -1（無効）   | GPIO21（D6） | ホスト側からのリセット制御を有効化          |
-
-#### 空きピン
-
-| XIAO ピン | GPIO   | 状態                                 |
-| --------- | ------ | ------------------------------------ |
-| **D0**    | GPIO2  | 空き（⚠️ ストラッピング：未使用推奨） |
-| **D7**    | GPIO20 | 空き（UART RX — デバッグ用に確保）   |
-| **D8**    | GPIO8  | 空き（⚠️ ストラッピング：未使用推奨） |
-| **D9**    | GPIO9  | 空き（⚠️ BOOTボタン：未使用推奨）     |
-
-### menuconfig での設定手順
+### ESP-IDF menuconfig setup
 
 ```powershell
 idf.py menuconfig
 ```
 
-→ **Example Configuration → Bus Config → SPI Full-Duplex Configuration** で以下を設定：
+Navigate to **Example Configuration → Bus Config → SPI Full-Duplex Configuration** and set:
 
-| 設定項目          | 値     |
-| ----------------- | ------ |
-| SPI MOSI (GPIO)   | **7**  |
-| SPI MISO (GPIO)   | **5**  |
-| SPI CLK (GPIO)    | **6**  |
-| SPI CS (GPIO)     | **10** |
-| Handshake (GPIO)  | **3**  |
-| Data Ready (GPIO) | **4**  |
-| Reset pin (GPIO)  | **21** |
+| Option            | Value |
+| ----------------- | ----- |
+| SPI MOSI (GPIO)   | 7     |
+| SPI MISO (GPIO)   | 5     |
+| SPI CLK (GPIO)    | 6     |
+| SPI CS (GPIO)     | 10    |
+| Handshake (GPIO)  | 3     |
+| Data Ready (GPIO) | 4     |
+| Reset pin (GPIO)  | 21    |
 
-→ 保存 → 再ビルド・フラッシュ。
-
+Save and rebuild.
 
 ```bash
-# esp-hosted-mcu の slave サンプルを作成
-# (ESP-IDF v5.3 以降を想定)
+# Create esp-hosted-mcu slave sample (ESP-IDF v5.3+ assumed)
 idf.py create-project-from-example "espressif/esp_hosted:slave"
 cd slave
 idf.py set-target esp32c3
 idf.py menuconfig
-# → Example Configuration → Bus Config in between Host and Co-processor
-#   → SPI Full-Duplex Configuration → GPIO設定:
+# Set SPI Full-Duplex Configuration:
 #   MISO=5, MOSI=7, CLK=6, CS=10, HS=3, DR=4
 #   Reset GPIO=21
 idf.py build flash
 ```
 
-RP2040側の依存は本リポジトリのサブモジュールで管理します。
+## Submodule setup
+
+RP2040-side dependencies are managed via git submodules:
 
 ```bash
 git submodule update --init --recursive external/embassy external/zenoh_ros2_nostd

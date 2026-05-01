@@ -4,12 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-天使の鼻 (Angel's Nose) — ウィスキー蒸留所巡回用 2WD ローバー。Baker link.dev (RP2040, Cortex-M0+) を主 MCU とし、XIAO ESP32-C3 を SPI 接続の WiFi コプロセッサ (esp-hosted-mcu) として使用。Embassy-rs (Rust `no_std`) で実装し、Zenoh 経由で ROS2 と通信する。
+天使の鼻 (Angel's Nose) — ウィスキー蒸留所巡回用 2WD ローバー。Baker link. Dev (RP2040, Cortex-M0+) を主 MCU とし、XIAO ESP32-C3 を SPI 接続の WiFi コプロセッサ (esp-hosted-mcu) として使用。Embassy-rs (Rust `no_std`) で実装し、Zenoh 経由で ROS2 と通信する。
 
-| Target | Chip | Toolchain Target |
-|--------|------|-----------------|
-| Baker link.dev | RP2040 (Cortex-M0+) | `thumbv6m-none-eabi` |
-| XIAO ESP32-C3 | ESP32-C3 | esp-hosted-mcu ファームウェア（SPI スレーブ） |
+| Target          | Chip                | Toolchain Target                              |
+| --------------- | ------------------- | --------------------------------------------- |
+| Baker link. Dev | RP2040 (Cortex-M0+) | `thumbv6m-none-eabi`                          |
+| XIAO ESP32-C3   | ESP32-C3            | esp-hosted-mcu ファームウェア（SPI スレーブ） |
 
 Toolchain: stable `1.94.1`（`rust-toolchain.toml`）。nightly 不要。
 
@@ -28,7 +28,7 @@ cargo build --no-default-features --features wifi --example wifi_zenoh_chatter
 # WiFi + センサー
 cargo build --no-default-features --features wifi,sensor --example wifi_zenoh_sensors
 
-# 書き込み (probe-rs / Baker link.dev 内蔵 CMSIS-DAP)
+# 書き込み (probe-rs / Baker link. Dev 内蔵 CMSIS-DAP)
 cargo run --release
 
 # UF2 変換 (USB ブートローダ書き込み)
@@ -99,12 +99,12 @@ main()
 
 ## Feature Flags
 
-| Feature | 内容 |
-|---------|------|
-| `embassy` (default) | Embassy executor/time/rp/sync |
-| `hal-rt` | rp2040-hal runtime |
-| `sensor` | embassy + BME280 |
-| `wifi` | embassy + embassy-net + esp-hosted-mcu + zenoh-ros2-nostd |
+| Feature             | 内容                                                      |
+| ------------------- | --------------------------------------------------------- |
+| `embassy` (default) | Embassy executor/time/rp/sync                             |
+| `hal-rt`            | rp2040-hal runtime                                        |
+| `sensor`            | embassy + BME280                                          |
+| `wifi`              | embassy + embassy-net + esp-hosted-mcu + zenoh-ros2-nostd |
 
 `--features wifi` のみで embassy も有効になる（`embassy,wifi` は冗長）。
 
@@ -131,24 +131,24 @@ v0.9 は `embedded-io-async = "0.7"` を要求するが、`zenoh-ros2-nostd` は
 ## Hardware Pin Assignment (RP2040)
 
 ### SPI0 → ESP32-C3 (esp-hosted-mcu)
-| RP2040 | Signal | ESP32-C3 GPIO | XIAO Pin |
-|--------|--------|---------------|----------|
-| GP16 (SPI0 RX) | MISO | GPIO5 | D3 |
-| GP17 (GPIO out) | CS | GPIO10 | D10 |
-| GP18 (SPI0 SCK) | SCK | GPIO6 | D4 |
-| GP19 (SPI0 TX) | MOSI | GPIO7 | D5 |
-| GP15 (GPIO in) | Handshake | GPIO3 | D1 |
-| GP13 (GPIO in) | Data Ready | GPIO4 | D2 |
-| GP14 (GPIO out) | Reset | GPIO21 | D6 |
+| RP2040          | Signal     | ESP32-C3 GPIO | XIAO Pin |
+| --------------- | ---------- | ------------- | -------- |
+| GP16 (SPI0 RX)  | MISO       | GPIO5         | D3       |
+| GP17 (GPIO out) | CS         | GPIO10        | D10      |
+| GP18 (SPI0 SCK) | SCK        | GPIO6         | D4       |
+| GP19 (SPI0 TX)  | MOSI       | GPIO7         | D5       |
+| GP15 (GPIO in)  | Handshake  | GPIO3         | D1       |
+| GP13 (GPIO in)  | Data Ready | GPIO4         | D2       |
+| GP14 (GPIO out) | Reset      | GPIO21        | D6       |
 
 ### Sensors & Actuators
-| RP2040 | Function | Device |
-|--------|----------|--------|
-| GP4/GP5 | I2C0 SDA/SCL | BME280 |
-| GP26 | ADC0 | MQ-3B (エタノール) |
-| GP10/GP11 | PWM | DRV8835 (モーター) |
-| GP2/GP3 | GPIO Trig/Echo | HC-SR04 (超音波) |
-| GP20/GP21/GP22 | GPIO | ステータス LED |
+| RP2040         | Function       | Device             |
+| -------------- | -------------- | ------------------ |
+| GP4/GP5        | I2C0 SDA/SCL   | BME280             |
+| GP26           | ADC0           | MQ-3B (エタノール) |
+| GP10/GP11      | PWM            | DRV8835 (モーター) |
+| GP2/GP3        | GPIO Trig/Echo | HC-SR04 (超音波)   |
+| GP20/GP21/GP22 | GPIO           | ステータス LED     |
 
 ## Supplementary Instruction Files
 
@@ -188,11 +188,11 @@ cargo objdump --release -- --section-headers
 
 ### 出力の読み方
 
-| 列 | 意味 | 対応メモリ |
-|----|------|-----------|
-| `text` | コード + read-only data | FLASH |
-| `data` | 初期値あり変数 | FLASH (初期値格納) + RAM (実行時コピー) |
-| `bss` | ゼロ初期化変数 | RAM のみ |
+| 列     | 意味                    | 対応メモリ                              |
+| ------ | ----------------------- | --------------------------------------- |
+| `text` | コード + read-only data | FLASH                                   |
+| `data` | 初期値あり変数          | FLASH (初期値格納) + RAM (実行時コピー) |
+| `bss`  | ゼロ初期化変数          | RAM のみ                                |
 
 **ROM 使用量 = `text + data`** （上限 ~2,096,896 B）  
 **RAM 使用量 = `data + bss`** （上限 270,336 B = 264 KB）

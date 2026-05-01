@@ -1,6 +1,6 @@
 // esp_hosted_spi_test.rs — Verify SPI communication with ESP32-C3 (esp-hosted-mcu)
 //
-// Diagnostic test for SPI bus between Baker link.dev (RP2040) and XIAO ESP32-C3.
+// Diagnostic test for SPI bus between Baker link. Dev (RP2040) and XIAO ESP32-C3.
 //
 // Steps:
 //   1. GPIO init
@@ -19,12 +19,12 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net_esp_hosted_mcu::{
-    self, BufferType, EspConfig, MAX_SPI_BUFFER_SIZE, Runner as EspRunner, SpiInterface, State,
+    self, BufferType, EspConfig, Runner as EspRunner, SpiInterface, State, MAX_SPI_BUFFER_SIZE,
 };
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::spi::{Async, Config as SpiConfig, Phase, Polarity, Spi};
 use embassy_rp::{bind_interrupts, dma, peripherals::*};
-use embassy_time::{Delay, Duration, Timer, with_timeout};
+use embassy_time::{with_timeout, Delay, Duration, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use panic_probe as _;
 use static_cell::StaticCell;

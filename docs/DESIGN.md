@@ -11,7 +11,7 @@
 空気中のエタノール蒸気（天使の分け前）、温湿度・気圧、樽内液面を計測し、
 ROS2 経由でリアルタイム監視する。
 
-**コアスタック**: Baker link.dev (RP2040) + Embassy-rs (Rust no\_std) + zenoh-ros2-nostd
+**コアスタック**: Baker link. Dev (RP2040) + Embassy-rs (Rust no\_std) + zenoh-ros2-nostd
 
 ---
 
@@ -19,7 +19,7 @@ ROS2 経由でリアルタイム監視する。
 
 ```text
 ┌───────────────────────────────────────────────────────────┐
-│                Baker link.dev (RP2040)                    │
+│                Baker link. Dev (RP2040)                    │
 │                   SPI Master                              │
 │                                                           │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐ │
@@ -80,7 +80,7 @@ ROS2 経由でリアルタイム監視する。
 │  embassy-rp  (RP2040 HAL)                           │
 │  └── SPI0 (async) + GPIO (Handshake/DR/Reset)       │
 ├─────────────────────────────────────────────────────┤
-│  Hardware: Baker link.dev ↔ XIAO ESP32-C3 (SPI)    │
+│  Hardware: Baker link. Dev ↔ XIAO ESP32-C3 (SPI)    │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -100,7 +100,7 @@ ROS2 経由でリアルタイム監視する。
 | BME280          | AE-BME280 モジュール     | ¥1,080   | 温湿度・気圧                   |
 | HC-SR04         | 超音波センサー           | ¥300     | 障害物回避                     |
 
-### 4.2 RP2040 (Baker link.dev) ↔ XIAO ESP32-C3 SPI 接続
+### 4.2 RP2040 (Baker link. Dev) ↔ XIAO ESP32-C3 SPI 接続
 
 > WIZ630io と同一 SPI0 バスレイアウト (GP14-19) を再利用
 
@@ -312,7 +312,7 @@ node.spin_and_backoff(&mut reconnect).await;
 ### 8.1 開発環境
 
 - **Dev Container**: Rust 1.94.1 + thumbv6m-none-eabi
-- **デバッガ**: probe-rs (Baker link.dev 内蔵 CMSIS-DAP)
+- **デバッガ**: probe-rs (Baker link. Dev 内蔵 CMSIS-DAP)
 - **ROS2**: Docker (rmw_zenoh_cpp + zenohd)
 
 ### 8.2 ビルドコマンド
@@ -351,7 +351,7 @@ ros2 topic echo /chatter std_msgs/msg/String
 
 ## 9. 関連リンク
 
-- [Baker link.dev](https://www.baker-link.com/)
+- [Baker link. Dev](https://www.baker-link.com/)
 - [embassy-net-esp-hosted](https://github.com/embassy-rs/embassy/tree/embassy-net-esp-hosted-v0.3.0/embassy-net-esp-hosted)
 - [esp-hosted-mcu](https://github.com/espressif/esp-hosted-mcu)
 - [zenoh-ros2-nostd](external/zenoh_ros2_nostd/)

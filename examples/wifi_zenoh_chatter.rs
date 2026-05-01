@@ -1,4 +1,4 @@
-// Baker link.dev (RP2040) → SPI0 → XIAO ESP32-C3 (esp-hosted-mcu)
+// Baker link. Dev (RP2040) → SPI0 → XIAO ESP32-C3 (esp-hosted-mcu)
 // → WiFi → Zenoh Router → ROS2 /chatter topic.
 //
 // Build:
