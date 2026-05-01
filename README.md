@@ -1,5 +1,7 @@
 # Angel's Nose - ROS2 × Baker link. Dev × Rover
 
+> ⚠️ This project is under active development. Features, wiring, and documentation may change.
+
 **A whiskey barrel patrol rover that detects alcohol vapor, environmental conditions, and barrel liquid level.**
 
 ![Project preview](docs/img/image.png)
