@@ -39,6 +39,10 @@
 GPIOs: CLK:6 MOSI:7 MISO:5 CS:10 HS:3 DR:4
 ```
 
+## 配線図
+
+![](docs/schematics/baker_link_esp32c3_spi.svg)
+
 ## 無線通信
 - **XIAO-ESP32-C3** を使用（ESP-Hosted-MCU）
 - `external/embassy` サブモジュール（`https://github.com/oktima/embassy-fork.git` の `upstream-esp-hosted-mcu`）に含まれる `embassy-net-esp-hosted` を使用
