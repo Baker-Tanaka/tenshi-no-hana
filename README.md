@@ -4,6 +4,8 @@
 
 **A whiskey barrel patrol rover that detects alcohol vapor, environmental conditions, and barrel liquid level.**
 
+## Illustrative Image
+
 ![Project preview](docs/img/image.png)
 
 ![System diagram](docs/img/tenshi_no_hana_rover_v2.svg)
