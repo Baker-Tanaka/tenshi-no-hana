@@ -14,7 +14,8 @@
                 "tamasfe.even-better-toml",
                 "fill-labs.dependi",
                 "mhutchie.git-graph",
-                "anthropic.claude-code"
+                "anthropic.claude-code",
+                "yzhang.markdown-all-in-one"
             ]
         }
     }
