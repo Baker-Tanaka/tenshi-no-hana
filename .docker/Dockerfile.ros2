@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-rmw-zenoh-cpp \
     ros-jazzy-demo-nodes-cpp \
     ros-jazzy-demo-nodes-py \
+    ros-jazzy-ros2interface \
     iproute2 iputils-ping \
     && rm -rf /var/lib/apt/lists/*
 
