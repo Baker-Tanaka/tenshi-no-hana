@@ -17,3 +17,5 @@ Cargo.lock
 wifi_config.json
 
 cad/tenshi_no_hana/tenshi_no_hana-backups/
+
+cad/tenshi_no_hana/~*
