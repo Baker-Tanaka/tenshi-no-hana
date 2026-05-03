@@ -7,7 +7,7 @@
 //   /angel_nose/temperature  (std_msgs/Float32)    — BME280 temperature [°C]
 //   /angel_nose/humidity     (std_msgs/Float32)    — BME280 relative humidity [%]
 //   /angel_nose/pressure     (std_msgs/Float32)    — BME280 atmospheric pressure [hPa]
-//   /angel_nose/ethanol      (std_msgs/Float32)    — MQ-3B analog voltage [V]
+//   /angel_nose/ethanol      (std_msgs/Float32)    — MQ-3B AOUT voltage [V]  (10kΩ/15kΩ divider)
 //   /angel_nose/range        (sensor_msgs/Range)   — HC-SR04 distance [m]  GP2/GP3
 //   /angel_nose/imu          (sensor_msgs/Imu)     — ICM-20602 6-axis IMU  I2C0 0x68
 //
@@ -60,6 +60,10 @@ bind_interrupts!(struct Irqs {
 
 /// Sensor sampling interval.  Edit this value and recompile to change the period.
 const SAMPLE_PERIOD_MS: u64 = 1_000;
+
+/// MQ-3B heater warm-up: skip ethanol publishing for the first 2 minutes.
+/// The sensor resistance drifts heavily during initial heating; early readings are meaningless.
+const MQ3B_WARMUP_SAMPLES: u32 = (120_000 / SAMPLE_PERIOD_MS) as u32;
 
 const TEMP_TOPIC: TopicKeyExpr = msg::std_msgs::Float32Type::topic(0, "angel_nose/temperature");
 const HUMI_TOPIC: TopicKeyExpr = msg::std_msgs::Float32Type::topic(0, "angel_nose/humidity");
@@ -285,11 +289,17 @@ async fn sensor_task(
         }
 
         // MQ-3B: ethanol analog voltage
+        // 10kΩ/15kΩ voltage divider on AOUT protects the 3.3V ADC from the 5V sensor supply.
+        // Actual AOUT = ADC_V × (10+15)/15  →  raw × 3.3 × 25/15 / 4096 = raw × 5.5 / 4096
         match adc.read(&mut mq3_ch).await {
             Ok(raw) => {
-                let voltage = raw as f32 * 3.3 / 4096.0;
-                info!("[sensor] #{}: MQ-3 raw={} V={}", count, raw, voltage);
-                let _ = ETOH_PUB.try_send(&msg::std_msgs::Float32Msg { data: voltage });
+                let voltage = raw as f32 * 5.5 / 4096.0;
+                if count <= MQ3B_WARMUP_SAMPLES {
+                    info!("[sensor] #{}: MQ-3 warming up raw={}", count, raw);
+                } else {
+                    info!("[sensor] #{}: MQ-3 raw={} AOUT={}V", count, raw, voltage);
+                    let _ = ETOH_PUB.try_send(&msg::std_msgs::Float32Msg { data: voltage });
+                }
             }
             Err(_) => warn!("[sensor] #{}: MQ-3 ADC failed", count),
         }
