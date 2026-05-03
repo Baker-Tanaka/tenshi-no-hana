@@ -76,7 +76,7 @@
   <rect class="sen-box" x="20" y="338" width="175" height="58" rx="4"/>
   <text x="107" y="356" text-anchor="middle" font-size="11" font-weight="bold" fill="#1B5E20">MQ-3B</text>
   <text x="107" y="369" class="sub-lbl">エタノールセンサー</text>
-  <text x="107" y="382" class="sub-lbl">AOUT→ADC  ⚠ ヒーター 5V/150mA</text>
+  <text x="107" y="382" class="sub-lbl">10k/15k分圧→ADC  ⚠ ヒーター 5V/150mA</text>
   <circle cx="195" cy="364" r="3" fill="#7B1FA2"/>
 
   <!-- Status LEDs -->
@@ -248,9 +248,21 @@
   <line class="pwm-line" x1="195" y1="297" x2="248" y2="297"/>
   <text x="221" y="293" class="sig-lbl" fill="#BF360C">PPM</text>
 
-  <!-- MQ-3B ADC -->
-  <line class="adc-line" x1="195" y1="364" x2="248" y2="364"/>
-  <text x="221" y="360" class="sig-lbl" fill="#7B1FA2">AOUT</text>
+  <!-- MQ-3B AOUT → 10kΩ/15kΩ voltage divider → GP26 (scales 5V→3V, protects RP2040 ADC) -->
+  <line class="adc-line" x1="195" y1="364" x2="202" y2="364"/>
+  <rect x="202" y="360" width="10" height="7" fill="white" stroke="#7B1FA2" stroke-width="1.2"/>
+  <text x="207" y="358" font-size="7" fill="#7B1FA2" text-anchor="middle">10k</text>
+  <line class="adc-line" x1="212" y1="364" x2="221" y2="364"/>
+  <circle cx="221" cy="364" r="2.5" fill="#7B1FA2"/>
+  <line class="adc-line" x1="221" y1="364" x2="248" y2="364"/>
+  <line class="adc-line" x1="221" y1="366" x2="221" y2="371"/>
+  <rect x="217" y="371" width="10" height="7" fill="white" stroke="#7B1FA2" stroke-width="1.2"/>
+  <text x="229" y="377" font-size="7" fill="#7B1FA2">15k</text>
+  <line x1="221" y1="378" x2="221" y2="383" stroke="#555" stroke-width="1.5" fill="none"/>
+  <line x1="215" y1="383" x2="227" y2="383" stroke="#555" stroke-width="1.8"/>
+  <line x1="217" y1="386" x2="225" y2="386" stroke="#555" stroke-width="1.4"/>
+  <line x1="219" y1="389" x2="223" y2="389" stroke="#555" stroke-width="1.0"/>
+  <text x="196" y="358" font-size="8" fill="#7B1FA2">AOUT</text>
 
   <!-- LEDs -->
   <line class="led-line" x1="195" y1="446" x2="248" y2="446"/>
