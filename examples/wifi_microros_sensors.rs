@@ -41,7 +41,7 @@ use embassy_time::{with_timeout, Delay, Duration, Instant, Timer};
 use embedded_hal::i2c::I2c as I2cTrait;
 use embedded_hal_bus::i2c::RefCellDevice;
 use embedded_hal_bus::spi::ExclusiveDevice;
-use micro_xrce_dds_rs::{msg, Session};
+use micro_xrce_dds_rs::{client_key, msg, Session};
 use panic_probe as _;
 use static_cell::StaticCell;
 use wifi_config::AppConfig;
@@ -216,7 +216,7 @@ async fn microros_task(stack: Stack<'static>) {
             continue;
         }
 
-        let mut session = match Session::connect(socket, 0x81, [0xBA, 0xCE, 0xA1, 0x05]).await {
+        let mut session = match Session::connect(socket, 0x81, client_key!()).await {
             Ok(s) => {
                 info!("[microros] session OK");
                 s

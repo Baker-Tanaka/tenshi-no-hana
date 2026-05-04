@@ -27,7 +27,7 @@ use embassy_rp::spi::{Async as SpiAsync, Config as SpiConfig, Phase, Polarity, S
 use embassy_rp::{bind_interrupts, dma, peripherals::*};
 use embassy_time::{with_timeout, Delay, Duration, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
-use micro_xrce_dds_rs::{msg, Session, Subscription};
+use micro_xrce_dds_rs::{client_key, msg, Session, Subscription};
 use panic_probe as _;
 use static_cell::StaticCell;
 use wifi_config::AppConfig;
@@ -143,14 +143,12 @@ async fn microros_task(stack: Stack<'static>) {
     info!("[microros] DHCP OK");
 
     let mut socket = TcpSocket::new(stack, tcp_rx, tcp_tx);
-    socket.set_timeout(Some(Duration::from_secs(30)));
     match with_timeout(Duration::from_secs(10), socket.connect(agent_ep)).await {
         Ok(Ok(())) => info!("[microros] TCP connected"),
         _ => defmt::panic!("[microros] TCP connect failed"),
     }
 
-    let mut session =
-        defmt::unwrap!(Session::connect(socket, 0x81, [0xBA, 0xCE, 0xA1, 0x05]).await);
+    let mut session = defmt::unwrap!(Session::connect(socket, 0x81, client_key!()).await);
     info!("[microros] session OK");
 
     let node = defmt::unwrap!(session.create_node("tenshi_no_hana_sub").await);

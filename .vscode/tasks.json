@@ -137,7 +137,7 @@
             "options": [
                 "microros_hello",
                 "esp_hosted_spi_test",
-                "wifi_microros_sensors"
+                "microros_subscriber"
             ],
             "default": "microros_hello"
         }

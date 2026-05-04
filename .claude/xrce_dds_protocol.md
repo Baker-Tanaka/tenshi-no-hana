@@ -208,6 +208,24 @@ Topic 名は ROS2 規約により `rt/` プレフィックスを付ける（ROS2
 
 ---
 
+## READ_DATA submessage（subscribe 要求）
+
+```
+BaseObjectRequest:
+  request_id : [u8; 2]
+  object_id  : [u8; 2]   DataReader の packed ObjectId
+ReadSpecification:
+  preferred_stream_id : u8       (BEST_EFFORT=0x01)
+  data_format         : u8       (FORMAT_DATA=0x00)
+  optional_content_filter_expression : bool (= 0)
+  optional_delivery_control          : bool (= 0)
+```
+
+> ⚠ **STATUS は返らない**: eProsima Client (`uxr_buffer_request_data`) は
+> READ_DATA 送信後に STATUS を待たない。Agent も STATUS を返さず、いきなり
+> DATA フレームを送り始める。送信側で STATUS を `wait_status_for` で待つと
+> TCP read timeout (`Io`) で死ぬ。**READ_DATA は fire-and-forget**。
+
 ## STATUS_Payload（CREATE 応答）
 
 ```
@@ -300,12 +318,39 @@ docker logs -f micro_ros_agent
 
 ### よくある詰まりポイント
 
-| 症状                                       | 原因                                                       |
-| ------------------------------------------ | ---------------------------------------------------------- |
-| TCP 接続成功 → CREATE_CLIENT 送信 → 沈黙   | submessage ID か CLIENT_Representation のフォーマット違反 |
-| STATUS_AGENT は来るが CREATE で沈黙         | CREATE のキャスト不足（CDR alignment）または kind 値違い  |
-| CREATE は通るが ROS2 で見えない             | DataType 名（`std_msgs::msg::dds_::Foo_`）か topic 名前    |
-| WRITE_DATA 送信後すぐ TCP 切断              | stream_id 違い（BEST_EFFORT は 0x01–0x7F）                 |
+| 症状                                                                           | 原因                                                                                                                       |
+| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| TCP 接続成功 → CREATE_CLIENT 送信 → 沈黙                                        | submessage ID か CLIENT_Representation のフォーマット違反                                                                  |
+| STATUS_AGENT は来るが CREATE で沈黙                                            | CREATE のキャスト不足（CDR alignment）または kind 値違い                                                                   |
+| CREATE は通るが ROS2 で見えない                                                | DataType 名（`std_msgs::msg::dds_::Foo_`）か topic 名前                                                                    |
+| WRITE_DATA 送信後すぐ TCP 切断                                                 | stream_id 違い（BEST_EFFORT は 0x01–0x7F）                                                                                 |
+| 1 つ目の app は OK、別の app に切り替えると `STATUS_ERR_DDS_ERROR (0x80)`        | 同じ `client_key` で異なる topic/型を idx 衝突した状態で REPLACE しようとしている。`docker restart micro_ros_agent` するか、各 app 用に別の `client_key` を使う |
+| `STATUS_OK_MATCHED (0x01)` が CREATE で連発                                    | 前回 session のエンティティが残存。続く DR/DW が壊れる予兆。同上。                                                         |
+
+> SDK は `parse_status_payload` で `STATUS_OK_MATCHED` を受けたとき必ず warn ログ
+> （`obj_id=0x... — stale entity reused...`）を出します。次に来る DR/DW が
+> `AgentRejected(0x80)` で死んだら、まずは agent restart を疑ってください。
+
+### Client key の運用
+
+各 firmware/example が同じ `client_key` だと、agent が前回 run のエンティティを
+再利用しようとして上記の MATCHED 連発 → DR/DW で `0x80` という事故が起きます。
+
+SDK が以下を提供しています:
+
+```rust
+// Cargo がアプリ名を勝手に渡してくれる版（推奨、各 example で別キー）
+let key: [u8; 4] = micro_xrce_dds_rs::client_key!();
+
+// 明示版（手動でユニーク文字列を指定）
+let key: [u8; 4] = micro_xrce_dds_rs::client_key!("my_custom_id");
+
+// const fn 直叩き（compile-time FNV-1a）
+const KEY: [u8; 4] = micro_xrce_dds_rs::client_key_from_app_id("my_app");
+```
+
+`client_key!()` (引数なし) は `concat!(CARGO_PKG_NAME, "/", CARGO_BIN_NAME)` の
+FNV-1a 32-bit hash を返すので、example/binary ごとに自動でユニークになります。
 
 ### Wireshark
 
