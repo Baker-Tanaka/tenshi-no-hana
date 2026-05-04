@@ -369,39 +369,30 @@ async fn microros_task(stack: Stack<'static>) {
 async fn create_entities<T: embedded_io_async::Read + embedded_io_async::Write>(
     s: &mut XrceSession<T>,
 ) -> Result<(), micro_xrce_dds_rs::XrceError> {
-    s.create_participant("tenshi_no_hana").await?;
+    const PARTICIPANT_IDX: u16 = 1;
+    const PUBLISHER_IDX: u16 = 1;
+
+    s.create_participant(PARTICIPANT_IDX, "tenshi_no_hana").await?;
     info!("[microros] Participant OK");
 
     // Topics (topic_idx matches the DataWriter index for clarity)
-    s.create_topic(1, "rt/angel_nose/temperature", std_msgs::FLOAT32_TYPE)
-        .await?;
-    s.create_topic(2, "rt/angel_nose/humidity", std_msgs::FLOAT32_TYPE)
-        .await?;
-    s.create_topic(3, "rt/angel_nose/pressure", std_msgs::FLOAT32_TYPE)
-        .await?;
-    s.create_topic(4, "rt/angel_nose/ethanol", std_msgs::FLOAT32_TYPE)
-        .await?;
-    s.create_topic(5, "rt/angel_nose/range", sensor_msgs::RANGE_TYPE)
-        .await?;
-    s.create_topic(6, "rt/angel_nose/imu", sensor_msgs::IMU_TYPE)
-        .await?;
+    s.create_topic(1, PARTICIPANT_IDX, "rt/angel_nose/temperature", std_msgs::FLOAT32_TYPE).await?;
+    s.create_topic(2, PARTICIPANT_IDX, "rt/angel_nose/humidity",    std_msgs::FLOAT32_TYPE).await?;
+    s.create_topic(3, PARTICIPANT_IDX, "rt/angel_nose/pressure",    std_msgs::FLOAT32_TYPE).await?;
+    s.create_topic(4, PARTICIPANT_IDX, "rt/angel_nose/ethanol",     std_msgs::FLOAT32_TYPE).await?;
+    s.create_topic(5, PARTICIPANT_IDX, "rt/angel_nose/range",       sensor_msgs::RANGE_TYPE).await?;
+    s.create_topic(6, PARTICIPANT_IDX, "rt/angel_nose/imu",         sensor_msgs::IMU_TYPE).await?;
     info!("[microros] Topics OK");
 
-    s.create_publisher(1).await?;
+    s.create_publisher(PUBLISHER_IDX, PARTICIPANT_IDX).await?;
     info!("[microros] Publisher OK");
 
-    s.create_datawriter(1, "rt/angel_nose/temperature", std_msgs::FLOAT32_TYPE)
-        .await?;
-    s.create_datawriter(2, "rt/angel_nose/humidity", std_msgs::FLOAT32_TYPE)
-        .await?;
-    s.create_datawriter(3, "rt/angel_nose/pressure", std_msgs::FLOAT32_TYPE)
-        .await?;
-    s.create_datawriter(4, "rt/angel_nose/ethanol", std_msgs::FLOAT32_TYPE)
-        .await?;
-    s.create_datawriter(5, "rt/angel_nose/range", sensor_msgs::RANGE_TYPE)
-        .await?;
-    s.create_datawriter(6, "rt/angel_nose/imu", sensor_msgs::IMU_TYPE)
-        .await?;
+    s.create_datawriter(1, PUBLISHER_IDX, "rt/angel_nose/temperature", std_msgs::FLOAT32_TYPE).await?;
+    s.create_datawriter(2, PUBLISHER_IDX, "rt/angel_nose/humidity",    std_msgs::FLOAT32_TYPE).await?;
+    s.create_datawriter(3, PUBLISHER_IDX, "rt/angel_nose/pressure",    std_msgs::FLOAT32_TYPE).await?;
+    s.create_datawriter(4, PUBLISHER_IDX, "rt/angel_nose/ethanol",     std_msgs::FLOAT32_TYPE).await?;
+    s.create_datawriter(5, PUBLISHER_IDX, "rt/angel_nose/range",       sensor_msgs::RANGE_TYPE).await?;
+    s.create_datawriter(6, PUBLISHER_IDX, "rt/angel_nose/imu",         sensor_msgs::IMU_TYPE).await?;
     info!("[microros] DataWriters OK");
 
     Ok(())

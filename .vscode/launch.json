@@ -152,10 +152,11 @@
             "description": "WiFi example name",
             "type": "pickString",
             "options": [
+                "microros_hello",
                 "esp_hosted_spi_test",
                 "wifi_microros_sensors"
             ],
-            "default": "esp_hosted_spi_test"
+            "default": "microros_hello"
         }
     ]
 }

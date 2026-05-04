@@ -24,7 +24,7 @@ services:
     container_name: micro_ros_agent
     ports:
       - "8888:8888"
-    command: tcp4 --port 8888
+    command: tcp4 --port 8888 -v 5
     healthcheck:
       test: [ "CMD-SHELL", "timeout 2 bash -c '</dev/tcp/localhost/8888' || exit 1" ]
       interval: 3s
