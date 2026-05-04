@@ -23,15 +23,15 @@
 
 ## スタック使用量目安 (デコード、フラットメッセージ)
 
-| フォーマット | スタック概算 (decode) | 備考 |
-|---|---|---|
-| 手書き固定長 | 16–64 B | 開発者が完全制御 |
-| `postcard` | 48–128 B | enum/エラーパスを含む上限 |
-| `minicbor` | 64–128 B | シンプルな struct に `#[derive(Decode)]` |
-| `nanopb` (C) | 64–256 B | メッセージ struct 込み |
-| `micropb` (Rust, flat) | 200–512 B | フラットのみ |
-| `micropb` (Rust, nested) | 512 B–1 KB+ | ネスト禁止 |
-| `prost` / `protobuf` | N/A (no_alloc) | `alloc` 必須。使用禁止 |
+| フォーマット             | スタック概算 (decode) | 備考                                     |
+| ------------------------ | --------------------- | ---------------------------------------- |
+| 手書き固定長             | 16–64 B               | 開発者が完全制御                         |
+| `postcard`               | 48–128 B              | enum/エラーパスを含む上限                |
+| `minicbor`               | 64–128 B              | シンプルな struct に `#[derive(Decode)]` |
+| `nanopb` (C)             | 64–256 B              | メッセージ struct 込み                   |
+| `micropb` (Rust, flat)   | 200–512 B             | フラットのみ                             |
+| `micropb` (Rust, nested) | 512 B–1 KB+           | ネスト禁止                               |
+| `prost` / `protobuf`     | N/A (no_alloc)        | `alloc` 必須。使用禁止                   |
 
 > ⚠️ 値は目安。実機で `cargo size`、スタックペイント、またはデバッガで必ず検証する。
 
@@ -153,12 +153,12 @@ let ok = unsafe {
 
 ## 関連クレート (no_std + no_alloc 検証済み)
 
-| クレート | バージョン | no_alloc | ワイヤ形式 |
-|---|---|---|---|
-| `postcard` | 1.x | ✅ | postcard (独自) |
-| `minicbor` | 0.20+ | ✅ | CBOR (RFC 7049) |
-| `micropb` | 0.2+ | ✅ (制限あり) | protobuf |
-| `serde` | 1.x | ✅ (`derive` 付き) | フォーマット非依存 |
-| `nanopb` | 0.4.x (C) | ✅ | protobuf |
+| クレート   | バージョン | no_alloc          | ワイヤ形式         |
+| ---------- | ---------- | ----------------- | ------------------ |
+| `postcard` | 1.x        | ✅                 | postcard (独自)    |
+| `minicbor` | 0.20+      | ✅                 | CBOR (RFC 7049)    |
+| `micropb`  | 0.2+       | ✅ (制限あり)      | protobuf           |
+| `serde`    | 1.x        | ✅ (`derive` 付き) | フォーマット非依存 |
+| `nanopb`   | 0.4.x (C)  | ✅                 | protobuf           |
 
 > 組み込みプロジェクトでは `Cargo.toml` でクレートバージョンを必ずピン留めする。
