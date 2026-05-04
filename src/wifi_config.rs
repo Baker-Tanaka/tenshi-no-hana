@@ -48,15 +48,14 @@ fn parse_addr(addr: &str) -> ([u8; 4], u16) {
         .rposition(|b| b == b':')
         .expect("MICRO_ROS_AGENT_ADDR: missing ':'. Expected \"a.b.c.d:port\"");
     let (ip_str, port_str) = (&addr[..colon], &addr[colon + 1..]);
-    let port = parse_u16(port_str)
-        .expect("MICRO_ROS_AGENT_ADDR: invalid port number (1–65535)");
+    let port = parse_u16(port_str).expect("MICRO_ROS_AGENT_ADDR: invalid port number (1–65535)");
     let mut octets = [0u8; 4];
     let mut count = 0usize;
     let mut tmp = ip_str;
     while let Some(dot) = tmp.find('.') {
         assert!(count < 4, "MICRO_ROS_AGENT_ADDR: too many IP octets");
-        octets[count] = parse_u8(&tmp[..dot])
-            .expect("MICRO_ROS_AGENT_ADDR: invalid IP octet (0–255)");
+        octets[count] =
+            parse_u8(&tmp[..dot]).expect("MICRO_ROS_AGENT_ADDR: invalid IP octet (0–255)");
         count += 1;
         tmp = &tmp[dot + 1..];
     }

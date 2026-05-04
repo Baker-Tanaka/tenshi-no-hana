@@ -1,12 +1,11 @@
-// microros_hello.rs — minimal WiFi → micro-ROS Agent hello-world.
+// microros_subscriber.rs — Subscribe demo.
 //
-// Publishes std_msgs/String on /angel_nose/hello once per second.
+// Subscribes to /cmd_vel (geometry_msgs/Twist) and prints linear.x / angular.z
+// to defmt. Run a publisher from the ros2-node container with:
+//   ros2 topic pub /cmd_vel geometry_msgs/msg/Twist '{linear: {x: 0.5}, angular: {z: 0.1}}'
 //
 // Build:
-//   cargo build --release --no-default-features --features wifi --example microros_hello
-//
-// Verify on ROS2 side (inside the ros2-node container):
-//   ros2 topic echo /angel_nose/hello
+//   cargo build --release --no-default-features --features wifi --example microros_subscriber
 #![no_std]
 #![no_main]
 
@@ -28,8 +27,7 @@ use embassy_rp::spi::{Async as SpiAsync, Config as SpiConfig, Phase, Polarity, S
 use embassy_rp::{bind_interrupts, dma, peripherals::*};
 use embassy_time::{with_timeout, Delay, Duration, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
-use heapless::String as HString;
-use micro_xrce_dds_rs::{msg, Session};
+use micro_xrce_dds_rs::{msg, Session, Subscription};
 use panic_probe as _;
 use static_cell::StaticCell;
 use wifi_config::AppConfig;
@@ -51,11 +49,16 @@ type MyEspRunner = EspRunner<'static, MySpiIface, Output<'static>>;
 static ESP_STATE: StaticCell<State> = StaticCell::new();
 static STACK_RESOURCES: StaticCell<StackResources<4>> = StaticCell::new();
 
+// Subscription slot for `/cmd_vel`. Initialized by `StaticCell` at startup,
+// then registered with the session — both halves (the dispatch task and the
+// reader task) share `&'static Subscription<...>`.
+static SUB_CMDVEL: StaticCell<Subscription<msg::geometry_msgs::Twist, 4>> = StaticCell::new();
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     Timer::after(Duration::from_millis(500)).await;
-    info!("[main] microros_hello start");
+    info!("[main] microros_subscriber start");
 
     let mut spi_cfg = SpiConfig::default();
     spi_cfg.frequency = 10_000_000;
@@ -131,68 +134,54 @@ async fn microros_task(stack: Stack<'static>) {
     let tcp_rx = TCP_RX.init([0u8; 4096]);
     let tcp_tx = TCP_TX.init([0u8; 4096]);
 
-    loop {
-        while stack.config_v4().is_none() {
-            Timer::after(Duration::from_millis(500)).await;
-        }
-        info!(
-            "[microros] DHCP OK, connecting to agent {}.{}.{}.{}:{}",
-            cfg.agent_ip[0], cfg.agent_ip[1], cfg.agent_ip[2], cfg.agent_ip[3], cfg.agent_port
-        );
+    let sub_cmdvel: &'static Subscription<msg::geometry_msgs::Twist, 4> =
+        SUB_CMDVEL.init(Subscription::new());
 
-        let mut socket = TcpSocket::new(stack, tcp_rx, tcp_tx);
-        socket.set_timeout(Some(Duration::from_secs(30)));
+    while stack.config_v4().is_none() {
+        Timer::after(Duration::from_millis(500)).await;
+    }
+    info!("[microros] DHCP OK");
 
-        if with_timeout(Duration::from_secs(10), socket.connect(agent_ep))
+    let mut socket = TcpSocket::new(stack, tcp_rx, tcp_tx);
+    socket.set_timeout(Some(Duration::from_secs(30)));
+    match with_timeout(Duration::from_secs(10), socket.connect(agent_ep)).await {
+        Ok(Ok(())) => info!("[microros] TCP connected"),
+        _ => defmt::panic!("[microros] TCP connect failed"),
+    }
+
+    let mut session =
+        defmt::unwrap!(Session::connect(socket, 0x81, [0xBA, 0xCE, 0xA1, 0x05]).await);
+    info!("[microros] session OK");
+
+    let node = defmt::unwrap!(session.create_node("tenshi_no_hana_sub").await);
+    defmt::unwrap!(
+        session
+            .create_subscription(&node, "/cmd_vel", sub_cmdvel)
             .await
-            .map(|r| r.is_ok())
-            .unwrap_or(false)
-        {
-            info!("[microros] TCP connected");
-        } else {
-            warn!("[microros] TCP connect failed, retry in 3s");
-            Timer::after(Duration::from_secs(3)).await;
-            continue;
+    );
+    info!("[microros] subscribed /cmd_vel");
+
+    // Reader half — runs on this same task using join-style alternation.
+    // Larger systems can split into a dedicated `session.spin()` task and
+    // user task awaiting `sub_cmdvel.recv()` separately.
+    loop {
+        // Drive one frame through the dispatch loop, then peek any pending
+        // samples without blocking. This single-task model avoids splitting
+        // the TcpSocket and keeps the example small.
+        if let Err(e) = session.spin_once().await {
+            error!("[microros] spin error: {}", e);
+            break;
         }
-
-        let mut session = match Session::connect(socket, 0x81, [0xBA, 0xCE, 0xA1, 0x05]).await {
-            Ok(s) => {
-                info!("[microros] session OK");
-                s
-            }
-            Err(e) => {
-                error!("[microros] session connect failed: {}", e);
-                Timer::after(Duration::from_secs(3)).await;
-                continue;
-            }
-        };
-
-        let node = defmt::unwrap!(session.create_node("tenshi_no_hana").await);
-        let pub_hello = defmt::unwrap!(
-            session
-                .create_publisher::<msg::std_msgs::String>(&node, "/angel_nose/hello")
-                .await
-        );
-        info!("[microros] publishing /angel_nose/hello");
-
-        let mut count: u32 = 0;
-        loop {
-            count += 1;
-            let mut buf: HString<32> = HString::new();
-            let _ = core::fmt::write(&mut buf, format_args!("hello #{}", count));
-
-            if let Err(e) = session
-                .publish(&pub_hello, &msg::std_msgs::String(buf.as_str()))
-                .await
-            {
-                error!("[microros] publish failed: {}", e);
-                break;
-            }
-            info!("[microros] sent: {}", buf.as_str());
-            Timer::after(Duration::from_secs(1)).await;
+        while let Some(twist) = sub_cmdvel.try_recv() {
+            info!(
+                "[/cmd_vel] linear=({}, {}, {}) angular=({}, {}, {})",
+                twist.linear.x as f32,
+                twist.linear.y as f32,
+                twist.linear.z as f32,
+                twist.angular.x as f32,
+                twist.angular.y as f32,
+                twist.angular.z as f32,
+            );
         }
-
-        warn!("[microros] connection lost, reconnecting");
-        Timer::after(Duration::from_secs(2)).await;
     }
 }

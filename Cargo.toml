@@ -104,6 +104,10 @@ required-features = ["wifi", "sensor"]
 name = "microros_hello"
 required-features = ["wifi"]
 
+[[example]]
+name = "microros_subscriber"
+required-features = ["wifi"]
+
 # cargo build/run
 [profile.dev]
 codegen-units = 1
