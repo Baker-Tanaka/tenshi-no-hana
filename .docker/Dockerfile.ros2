@@ -1,14 +1,11 @@
-# ROS2 Jazzy + rmw_zenoh_cpp integration test environment
-#
-# Used by both the zenoh-router and ros2-node services in compose.yaml.
+# ROS2 Jazzy development environment for micro-ROS testing
+# Used by the ros2-node service in compose.yaml.
 FROM ros:jazzy
 
 ENV DEBIAN_FRONTEND=noninteractive
-ENV RMW_IMPLEMENTATION=rmw_zenoh_cpp
 
-# Install rmw_zenoh_cpp and utilities
+# Install ROS2 demo nodes and interface utilities
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ros-jazzy-rmw-zenoh-cpp \
     ros-jazzy-demo-nodes-cpp \
     ros-jazzy-demo-nodes-py \
     ros-jazzy-ros2interface \

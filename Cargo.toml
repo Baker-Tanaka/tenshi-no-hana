@@ -23,10 +23,9 @@ wifi = [
     "dep:embedded-hal-async",
     "dep:embedded-io-async",
     "dep:heapless",
-    "dep:serde",
     "dep:static_cell",
     "dep:portable-atomic",
-    "dep:zenoh-ros2-nostd",
+    "dep:micro-xrce-dds-rs",
 ]
 
 [dependencies]
@@ -72,15 +71,12 @@ embassy-net-esp-hosted-mcu = { path = "external/embassy/embassy-net-esp-hosted-m
 embedded-hal-bus = { version = "0.2", features = ["async"], optional = true }
 embedded-hal-async = { version = "1.0", optional = true }
 embedded-io-async = { version = "0.6", optional = true }
-heapless = { version = "0.8", features = ["serde"], optional = true }
-serde = { version = "1.0", default-features = false, features = [
-    "derive",
-], optional = true }
+heapless = { version = "0.8", optional = true }
 static_cell = { version = "2", optional = true }
 portable-atomic = { version = "1", features = [
     "unsafe-assume-single-core",
 ], optional = true }
-zenoh-ros2-nostd = { path = "external/zenoh_ros2_nostd", default-features = false, features = [
+micro-xrce-dds-rs = { path = "external/micro_xrce_dds_rs", default-features = false, features = [
     "defmt",
 ], optional = true }
 bme280 = { version = "0.5", features = ["defmt"], optional = true }
@@ -101,11 +97,7 @@ name = "esp_hosted_spi_test"
 required-features = ["wifi"]
 
 [[example]]
-name = "wifi_zenoh_chatter"
-required-features = ["wifi"]
-
-[[example]]
-name = "wifi_zenoh_sensors"
+name = "wifi_microros_sensors"
 required-features = ["wifi", "sensor"]
 
 # cargo build/run

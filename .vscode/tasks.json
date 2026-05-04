@@ -43,7 +43,7 @@
         {
             "label": "cargo: build wifi+sensor example",
             "type": "shell",
-            "command": "cargo build --no-default-features --features wifi,sensor --example wifi_zenoh_sensors",
+            "command": "cargo build --no-default-features --features wifi,sensor --example wifi_microros_sensors",
             "group": "build",
             "problemMatcher": [
                 "$rustc"
@@ -136,7 +136,7 @@
             "type": "pickString",
             "options": [
                 "esp_hosted_spi_test",
-                "wifi_zenoh_chatter"
+                "wifi_microros_sensors"
             ],
             "default": "esp_hosted_spi_test"
         }

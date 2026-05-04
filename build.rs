@@ -26,16 +26,16 @@ fn main() {
             .unwrap_or_else(|| panic!("wifi_config.json: missing or invalid \"ssid\" field"));
         let password = extract_str(&json, "password")
             .unwrap_or_else(|| panic!("wifi_config.json: missing or invalid \"password\" field"));
-        let router_addr = extract_str(&json, "router_addr").unwrap_or_else(|| {
+        let agent_addr = extract_str(&json, "agent_addr").unwrap_or_else(|| {
             panic!(
-                "wifi_config.json: missing \"router_addr\" field.\n\
-                 Example: \"router_addr\": \"192.168.1.1:7447\""
+                "wifi_config.json: missing \"agent_addr\" field.\n\
+                 Example: \"agent_addr\": \"192.168.1.1:8888\""
             )
         });
 
         println!("cargo:rustc-env=WIFI_SSID={ssid}");
         println!("cargo:rustc-env=WIFI_PASSWORD={password}");
-        println!("cargo:rustc-env=ZENOH_ROUTER_ADDR={router_addr}");
+        println!("cargo:rustc-env=MICRO_ROS_AGENT_ADDR={agent_addr}");
     }
 }
 

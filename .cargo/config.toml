@@ -25,13 +25,43 @@ DEFMT_LOG = "debug"
 
 # Memory usage analysis shortcuts (requires cargo-binutils)
 # cargo size-default  → Embassy LED demo (default feature)
-# cargo size-wifi     → wifi_zenoh_chatter example
+# cargo size-wifi     → wifi_microros_sensors example
 # cargo size-sensor   → sensor_read example
 # cargo size-all      → wifi + sensor example (largest build)
 # cargo nm-top        → top symbols by size (ROM hotspots)
 [alias]
 size-default = "size --release -- -B"
-size-wifi    = ["size", "--no-default-features", "--features", "wifi",         "--example", "wifi_zenoh_chatter",   "--release", "--", "-B"]
-size-sensor  = ["size", "--no-default-features", "--features", "sensor",       "--example", "sensor_read",          "--release", "--", "-B"]
-size-all     = ["size", "--no-default-features", "--features", "wifi,sensor",  "--example", "wifi_zenoh_sensors",   "--release", "--", "-B"]
-nm-top       = "nm --release -- --print-size --size-sort --radix=d"
+size-wifi = [
+  "size",
+  "--no-default-features",
+  "--features",
+  "wifi",
+  "--example",
+  "wifi_microros_sensors",
+  "--release",
+  "--",
+  "-B",
+]
+size-sensor = [
+  "size",
+  "--no-default-features",
+  "--features",
+  "sensor",
+  "--example",
+  "sensor_read",
+  "--release",
+  "--",
+  "-B",
+]
+size-all = [
+  "size",
+  "--no-default-features",
+  "--features",
+  "wifi,sensor",
+  "--example",
+  "wifi_microros_sensors",
+  "--release",
+  "--",
+  "-B",
+]
+nm-top = "nm --release -- --print-size --size-sort --radix=d"

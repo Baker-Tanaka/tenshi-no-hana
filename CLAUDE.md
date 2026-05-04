@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-天使の鼻 (Angel's Nose) — ウィスキー蒸留所巡回用 2WD ローバー。Baker link. Dev (RP2040, Cortex-M0+) を主 MCU とし、XIAO ESP32-C3 を SPI 接続の WiFi コプロセッサ (esp-hosted-mcu) として使用。Embassy-rs (Rust `no_std`) で実装し、Zenoh 経由で ROS2 と通信する。
+天使の鼻 (Angel's Nose) — ウィスキー蒸留所巡回用 2WD ローバー。Baker link. Dev (RP2040, Cortex-M0+) を主 MCU とし、XIAO ESP32-C3 を SPI 接続の WiFi コプロセッサ (esp-hosted-mcu) として使用。Embassy-rs (Rust `no_std`) で実装し、micro-ROS Agent 経由で ROS2 と通信する。
 
 | Target          | Chip                | Toolchain Target                              |
 | --------------- | ------------------- | --------------------------------------------- |
@@ -23,10 +23,10 @@ cargo build --release
 cargo build --no-default-features --features sensor --example sensor_read
 
 # WiFi サンプル (wifi feature は embassy を含む)
-cargo build --no-default-features --features wifi --example wifi_zenoh_chatter
+cargo build --no-default-features --features wifi --example wifi_microros_sensors
 
 # WiFi + センサー
-cargo build --no-default-features --features wifi,sensor --example wifi_zenoh_sensors
+cargo build --no-default-features --features wifi,sensor --example wifi_microros_sensors
 
 # 書き込み (probe-rs / Baker link. Dev 内蔵 CMSIS-DAP)
 cargo run --release
@@ -34,7 +34,7 @@ cargo run --release
 # UF2 変換 (USB ブートローダ書き込み)
 elf2uf2-rs target/thumbv6m-none-eabi/release/tenshi-no-hana target/tenshi-no-hana.uf2
 
-# Docker (ROS2 + Zenoh Router)
+# Docker (micro-ROS Agent)
 docker compose up -d
 ```
 
@@ -47,8 +47,7 @@ src/
   main.rs          # Embassy multi-task LED demo (エントリポイント)
   wifi_config.rs   # AppConfig: wifi_config.json → build.rs → env vars → compile-time定数
 examples/
-  wifi_zenoh_chatter.rs   # WiFi → Zenoh → ROS2 /chatter pub/sub (最もシンプルな WiFi 実装)
-  wifi_zenoh_sensors.rs   # WiFi → Zenoh → ROS2 センサーデータ (BME280 + MQ-3B)
+  wifi_microros_sensors.rs   # WiFi → micro-ROS Agent → ROS2 センサーデータ (BME280 + MQ-3B)
   sensor_read.rs           # BME280 + MQ-3B スタンドアロン読み取り
   esp_hosted_spi_test.rs   # SPI 通信テスト
 external/
@@ -57,14 +56,14 @@ external/
     embassy-net-driver/          # [patch.crates-io] でオーバーライド
     embassy-net-driver-channel/  # [patch.crates-io] でオーバーライド
     embassy-time-driver/         # [patch.crates-io] でオーバーライド
-  zenoh_ros2_nostd/        # git submodule — no_std ROS2 通信ライブラリ
+  micro_xrce_dds_rs/        # git submodule — no_std micro-ROS XRCE-DDS library
 ```
 
 ### Communication Stack
 
 ```
 Application (Publisher / Subscription)
-  └── zenoh-ros2-nostd (NodeBuilder → Node → spin())
+  └── micro_xrce_dds_rs (NodeBuilder → Node → spin())
         └── embassy-net v0.7.x (TcpSocket: Read + Write)
               └── embassy-net-esp-hosted-mcu (WiFi over SPI)
                     └── embassy-rp SPI0 (async) + GPIO (Handshake/DR/Reset)
@@ -77,15 +76,14 @@ Application (Publisher / Subscription)
 main()
   ├── esp_hosted_task  — SPI 通信ドライバループ (TX/RX buf は StaticCell で確保)
   ├── net_task         — embassy-net パケット I/O ループ
-  ├── zenoh_task       — DHCP → TCP → Zenoh → Node::spin()
+  ├── microros_task    — DHCP → TCP → XRCE-DDS → Node::spin()
   └── app_task         — Publisher.send() / Subscription.try_recv()
 ```
 
 ### Reference Implementation
 
 新しい WiFi 実装を書くときのテンプレート:
-- `external/zenoh_ros2_nostd/examples/bakerlink_wiz630io/` (WIZ630io 版、構造が同じ)
-- `examples/wifi_zenoh_chatter.rs` (ESP-hosted 版、最もシンプル)
+- `examples/wifi_microros_sensors.rs` (ESP-hosted + micro-ROS Agent 版、最もシンプルなセンサー publish)
 
 ## Code Style
 
@@ -99,12 +97,12 @@ main()
 
 ## Feature Flags
 
-| Feature             | 内容                                                      |
-| ------------------- | --------------------------------------------------------- |
-| `embassy` (default) | Embassy executor/time/rp/sync                             |
-| `hal-rt`            | rp2040-hal runtime                                        |
-| `sensor`            | embassy + BME280                                          |
-| `wifi`              | embassy + embassy-net + esp-hosted-mcu + zenoh-ros2-nostd |
+| Feature             | 内容                                                       |
+| ------------------- | ---------------------------------------------------------- |
+| `embassy` (default) | Embassy executor/time/rp/sync                              |
+| `hal-rt`            | rp2040-hal runtime                                         |
+| `sensor`            | embassy + BME280                                           |
+| `wifi`              | embassy + embassy-net + esp-hosted-mcu + micro_xrce_dds_rs |
 
 `--features wifi` のみで embassy も有効になる（`embassy,wifi` は冗長）。
 
@@ -114,7 +112,7 @@ main()
 `CtrlMsg::decode()` が 64 個の oneof arm を持ち、最適化なしでは ~96 KB のスタックを消費してクラッシュする。Embassy async poll チェーン全体も同様。
 
 ### embassy-net は v0.7.x に固定
-v0.9 は `embedded-io-async = "0.7"` を要求するが、`zenoh-ros2-nostd` は `"0.6"` を使用。`[patch.crates-io]` には `embassy-net-driver` / `embassy-net-driver-channel` / `embassy-time-driver` のみを submodule から patch する（`embassy-net-esp-hosted-mcu` は path dep なので patch 不要）。
+v0.9 は `embedded-io-async = "0.7"` を要求するが、`micro_xrce_dds_rs` や他の依存では `"0.6"` を使用する。`[patch.crates-io]` には `embassy-net-driver` / `embassy-net-driver-channel` / `embassy-time-driver` のみを submodule から patch する（`embassy-net-esp-hosted-mcu` は path dep なので patch 不要）。
 
 ### SPI 設定
 - SPI Mode: **Mode 3** (`Polarity::IdleHigh` + `Phase::CaptureOnSecondTransition`)
@@ -163,9 +161,9 @@ RP2040 メモリ制約: **FLASH 2048KB** (BOOT2 256B を除く実質 ~2047.75KB)
 
 ```sh
 cargo size-default   # default feature (Embassy LED デモ)
-cargo size-wifi      # wifi_zenoh_chatter example
+cargo size-wifi      # wifi_microros_sensors example
 cargo size-sensor    # sensor_read example
-cargo size-all       # wifi_zenoh_sensors example (最大構成)
+cargo size-all       # wifi_microros_sensors example (最大構成)
 cargo nm-top         # ROM 使用量上位シンボル一覧
 ```
 
@@ -174,7 +172,7 @@ cargo nm-top         # ROM 使用量上位シンボル一覧
 ```sh
 # Berkeley format: text / data / bss / dec / hex の列を表示
 cargo size --release -- -B
-cargo size --no-default-features --features wifi --example wifi_zenoh_chatter --release -- -B
+cargo size --no-default-features --features wifi --example wifi_microros_sensors --release -- -B
 
 # sysv format: セクション別詳細
 cargo size --release -- -A
@@ -203,7 +201,7 @@ cargo objdump --release -- --section-headers
 ## Submodule Setup
 
 ```sh
-git submodule update --init --recursive external/embassy external/zenoh_ros2_nostd
+git submodule update --init --recursive external/embassy external/micro_xrce_dds_rs
 ```
 
 ## esp-hosted-mcu API Quick Reference

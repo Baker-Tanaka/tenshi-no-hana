@@ -6,6 +6,44 @@ Applies primarily to: `wifi_*.rs`, `esp_hosted_*.rs`, `../src/wifi_config.rs`
 
 ---
 
+## micro-ROS Agent 接続
+
+WiFi サンプル (`wifi_microros_sensors.rs`) は micro-ROS Agent (TCP) と通信する。
+
+```sh
+# Agent 起動 (Docker)
+docker compose up -d
+
+# ROS2 側でトピック確認
+ros2 topic list
+ros2 topic echo /angel_nose/temperature std_msgs/msg/Float32
+```
+
+Agent アドレスは `wifi_config.json` の `agent_addr` フィールドで指定。
+デフォルト TCP ポート: **8888**（`.docker/compose.yaml` の `--port 8888` と一致させること）。
+
+### プロトコル概要
+
+| レイヤー         | 内容                                                              |
+| ---------------- | ----------------------------------------------------------------- |
+| TCP framing      | `[length: u16 LE][payload]`  ← eProsima Micro XRCE-DDS Agent TCP 標準 |
+| XRCE-DDS session | CREATE_CLIENT → STATUS_AGENT                                      |
+| DDS entities     | Participant → Topic × 6 → Publisher → DataWriter × 6              |
+| Data format      | CDR Little Endian（encapsulation header `[0x00,0x01,0x00,0x00]`） |
+| Reliability      | BEST_EFFORT (stream_id=0x01)、WRITE_DATA は無応答 fire-and-forget |
+
+### デバッグ: Wireshark で XRCE-DDS をキャプチャ
+
+```sh
+# micro-ROS Agent の XRCE パケットを確認 (port 8888)
+wireshark -f "tcp port 8888"
+# Dissector: Analyze → Decode As → RTPS (ポートが認識されない場合)
+```
+
+---
+
+---
+
 # esp-hosted-mcu 学習ノート
 
 ## 概要
@@ -23,38 +61,38 @@ FG/NG とは別物。混同しないこと。
 
 ## SPI 設定
 
-| 項目 | 値 |
-|------|-----|
-| Mode | **3** (CPOL=1, CPHA=1) |
-| Polarity | `IdleHigh` |
-| Phase | `CaptureOnSecondTransition` |
-| Frequency | 10 MHz |
+| 項目             | 値                              |
+| ---------------- | ------------------------------- |
+| Mode             | **3** (CPOL=1, CPHA=1)          |
+| Polarity         | `IdleHigh`                      |
+| Phase            | `CaptureOnSecondTransition`     |
+| Frequency        | 10 MHz                          |
 | Handshake (GP15) | `Pull::Down` ← `Pull::Up` は NG |
-| DataReady (GP13) | `Pull::Down` |
+| DataReady (GP13) | `Pull::Down`                    |
 
 ## ピン割り当て
 
-| RP2040 | Signal | ESP32-C3 |
-|--------|--------|----------|
-| GP16 | MISO | GPIO5 |
-| GP17 | CS | GPIO10 |
-| GP18 | SCK | GPIO6 |
-| GP19 | MOSI | GPIO7 |
-| GP15 | Handshake | GPIO3 |
-| GP13 | Data Ready | GPIO4 |
-| GP14 | Reset | GPIO21 |
+| RP2040 | Signal     | ESP32-C3 |
+| ------ | ---------- | -------- |
+| GP16   | MISO       | GPIO5    |
+| GP17   | CS         | GPIO10   |
+| GP18   | SCK        | GPIO6    |
+| GP19   | MOSI       | GPIO7    |
+| GP15   | Handshake  | GPIO3    |
+| GP13   | Data Ready | GPIO4    |
+| GP14   | Reset      | GPIO21   |
 
 ## インターフェースタイプ (ESP-Hosted-MCU Header)
 
-| 値 | 名前 | 説明 |
-|----|------|------|
-| 0 | ESP_INVALID_IF | 無効 |
-| 1 | ESP_STA_IF | Wi-Fi Station フレーム |
-| 2 | ESP_AP_IF | SoftAP フレーム |
-| 3 | ESP_SERIAL_IF | RPC 制御フレーム |
-| 4 | ESP_HCI_IF | Bluetooth HCI |
+| 値    | 名前            | 説明                                       |
+| ----- | --------------- | ------------------------------------------ |
+| 0     | ESP_INVALID_IF  | 無効                                       |
+| 1     | ESP_STA_IF      | Wi-Fi Station フレーム                     |
+| 2     | ESP_AP_IF       | SoftAP フレーム                            |
+| 3     | ESP_SERIAL_IF   | RPC 制御フレーム                           |
+| 4     | ESP_HCI_IF      | Bluetooth HCI                              |
 | **5** | **ESP_PRIV_IF** | **プライベート通信 (スレーブ↔ホスト内部)** |
-| 6 | ESP_TEST_IF | スループットテスト |
+| 6     | ESP_TEST_IF     | スループットテスト                         |
 
 > **`unknown iftype 5` の警告は正常。** `ESP_PRIV_IF` はドライバーが処理しなくて良い。
 
@@ -80,12 +118,12 @@ message Rpc {
 
 ### 重要な RpcId 値
 
-| 値 | 名前 |
-|----|------|
-| 769 (0x301) | Event_ESPInit |
-| 770 (0x302) | Event_Heartbeat |
-| 775 | Event_StaConnected |
-| 776 | Event_StaDisconnected |
+| 値          | 名前                  |
+| ----------- | --------------------- |
+| 769 (0x301) | Event_ESPInit         |
+| 770 (0x302) | Event_Heartbeat       |
+| 775         | Event_StaConnected    |
+| 776         | Event_StaDisconnected |
 
 ## 初期化シーケンス
 
@@ -163,12 +201,12 @@ fn handle_event(&mut self, data: &[u8]) {
 ```
 
 **RpcId 定数** (proto.rs L55761):
-| RpcId | 値 | 意味 |
-|-------|----|------|
-| EventEspInit | 769 | 初期化完了 |
-| EventHeartbeat | 770 | ハートビート |
-| EventStaConnected | 775 | STA 接続完了 |
-| EventStaDisconnected | 776 | STA 切断 |
+| RpcId                | 値  | 意味         |
+| -------------------- | --- | ------------ |
+| EventEspInit         | 769 | 初期化完了   |
+| EventHeartbeat       | 770 | ハートビート |
+| EventStaConnected    | 775 | STA 接続完了 |
+| EventStaDisconnected | 776 | STA 切断     |
 
 **Protobuf 構造**:
 - `Rpc { msg_type=field1, msg_id=field2, uid=field3, payload=field<msg_id>(LEN) }`
@@ -176,13 +214,13 @@ fn handle_event(&mut self, data: &[u8]) {
 
 ## FG variant との主な違い
 
-| | `embassy-net-esp-hosted` (FG) | `embassy-net-esp-hosted-mcu` (MCU) |
-|---|---|---|
-| Proto | `CtrlMsg` | `Rpc` |
-| `new()` 第4引数 | なし | `events_notifier: Option<&'static Signal<...>>` |
-| `runner.run()` | 引数なし | `(tx_buf, rx_buf)` 外部バッファ必要 |
-| `control.init()` | 引数なし | `EspConfig` 必須 |
-| `control.connect()` | `Result<(), Error>` | `Result<bool, Error>` |
-| InterfaceType::Sta | 0 | 1 |
-| InterfaceType::Serial | 2 | 3 |
-| EventEspInit field# | 301 | 769 |
+|                       | `embassy-net-esp-hosted` (FG) | `embassy-net-esp-hosted-mcu` (MCU)              |
+| --------------------- | ----------------------------- | ----------------------------------------------- |
+| Proto                 | `CtrlMsg`                     | `Rpc`                                           |
+| `new()` 第4引数       | なし                          | `events_notifier: Option<&'static Signal<...>>` |
+| `runner.run()`        | 引数なし                      | `(tx_buf, rx_buf)` 外部バッファ必要             |
+| `control.init()`      | 引数なし                      | `EspConfig` 必須                                |
+| `control.connect()`   | `Result<(), Error>`           | `Result<bool, Error>`                           |
+| InterfaceType::Sta    | 0                             | 1                                               |
+| InterfaceType::Serial | 2                             | 3                                               |
+| EventEspInit field#   | 301                           | 769                                             |

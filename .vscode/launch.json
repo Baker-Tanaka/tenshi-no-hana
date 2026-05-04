@@ -110,7 +110,7 @@
             "coreConfigs": [
                 {
                     "coreIndex": 0,
-                    "programBinary": "tenshi-no-hana/target/thumbv6m-none-eabi/debug/examples/wifi_zenoh_sensors",
+                    "programBinary": "tenshi-no-hana/target/thumbv6m-none-eabi/debug/examples/wifi_microros_sensors",
                     "rttEnabled": true,
                 }
             ],
@@ -153,7 +153,7 @@
             "type": "pickString",
             "options": [
                 "esp_hosted_spi_test",
-                "wifi_zenoh_chatter"
+                "wifi_microros_sensors"
             ],
             "default": "esp_hosted_spi_test"
         }

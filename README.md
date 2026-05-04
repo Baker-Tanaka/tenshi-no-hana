@@ -19,7 +19,7 @@ This project combines:
 - **Baker link. Dev (RP2040)**
 - **XIAO-ESP32-C3 as a Wi-Fi ESP-hosted MCU**
 - **Embassy-rs no_std async runtime**
-- **zenoh-ros2-nostd** for ROS2-compatible messaging
+- **micro_xrce_dds_rs** with a **micro-ROS Agent** bridge
 
 ## Key features
 - Ethanol vapor detection as a proxy for the barrel's "angel's share"
@@ -31,16 +31,16 @@ This project combines:
 ## Hardware bill of materials
 Estimated Japan-focused pricing as of April 2026.
 
-| Part               | Example                                              | Approx. Price | Link                                                            | Notes                                           |
-| ------------------ | ---------------------------------------------------- | ------------- | --------------------------------------------------------------- | ----------------------------------------------- |
-| 2WD robot chassis  | FT-DC-002 / 2WD Mini Smart Robot Mobile Platform Kit | ¥1,900        | [Akizuki](https://akizukidenshi.com/catalog/g/g113651/)         | Includes motors; encoder-free version available |
-| Baker link. Dev    | -                                                    | ¥1,980        | [Switch Science](https://www.switch-science.com/products/10044) | Native Embassy-rs / Rust no_std support         |
-| Motor driver       | DRV8835 dual motor driver                            | ¥400–1,395    | [Akizuki](https://akizukidenshi.com/catalog/g/g109848/)         | Ideal for direct PWM motor control              |
+| Part               | Example                                              | Approx. Price | Link                                                            | Notes                                                         |
+| ------------------ | ---------------------------------------------------- | ------------- | --------------------------------------------------------------- | ------------------------------------------------------------- |
+| 2WD robot chassis  | FT-DC-002 / 2WD Mini Smart Robot Mobile Platform Kit | ¥1,900        | [Akizuki](https://akizukidenshi.com/catalog/g/g113651/)         | Includes motors; encoder-free version available               |
+| Baker link. Dev    | -                                                    | ¥1,980        | [Switch Science](https://www.switch-science.com/products/10044) | Native Embassy-rs / Rust no_std support                       |
+| Motor driver       | DRV8835 dual motor driver                            | ¥400–1,395    | [Akizuki](https://akizukidenshi.com/catalog/g/g109848/)         | Ideal for direct PWM motor control                            |
 | Ethanol sensor     | MQ-3B or MQ-3 module                                 | ¥450          | [Akizuki](https://akizukidenshi.com/catalog/g/g116269/)         | Main sensor for vapor detection; heater requires 5 V / 150 mA |
-| Voltage divider    | 10 kΩ + 15 kΩ resistors                              | < ¥10         | —                                                               | Required: scales MQ-3B AOUT (0–5 V) to 0–3 V for RP2040 ADC  |
-| Environment sensor | BME280 module (AE-BME280)                            | ¥1,650        | [Switch Science](https://www.switch-science.com/products/2236)  | Required for evaporation compensation           |
-| Optional IMU       | 6-axis IMU module                                    | ¥990          | [Switch Science](https://www.switch-science.com/products/8695)  | Useful for odometry and attitude estimation     |
-| Ultrasonic sensor  | -                                                    | ¥300          | [Switch Science](https://www.switch-science.com/products/8224/) | For obstacle avoidance                          |
+| Voltage divider    | 10 kΩ + 15 kΩ resistors                              | < ¥10         | —                                                               | Required: scales MQ-3B AOUT (0–5 V) to 0–3 V for RP2040 ADC   |
+| Environment sensor | BME280 module (AE-BME280)                            | ¥1,650        | [Switch Science](https://www.switch-science.com/products/2236)  | Required for evaporation compensation                         |
+| Optional IMU       | 6-axis IMU module                                    | ¥990          | [Switch Science](https://www.switch-science.com/products/8695)  | Useful for odometry and attitude estimation                   |
+| Ultrasonic sensor  | -                                                    | ¥300          | [Switch Science](https://www.switch-science.com/products/8224/) | For obstacle avoidance                                        |
 
 ```
 GPIOs: CLK:6 MOSI:7 MISO:5 CS:10 HS:3 DR:4
@@ -60,7 +60,7 @@ GPIOs: CLK:6 MOSI:7 MISO:5 CS:10 HS:3 DR:4
 - Uses the `external/embassy` submodule and `embassy-net-esp-hosted` from the `upstream-esp-hosted-mcu` fork
 
 ## Software stack
-- `zenoh-ros2-nostd`
+- `micro_xrce_dds_rs` with micro-ROS Agent TCP transport
 - Custom message support for `angel_nose_msgs` (ethanol level, liquid height, environment data)
 
 ## How it works
@@ -162,5 +162,5 @@ idf.py build flash
 RP2040-side dependencies are managed via git submodules:
 
 ```bash
-git submodule update --init --recursive external/embassy external/zenoh_ros2_nostd
+git submodule update --init --recursive external/embassy external/micro_xrce_dds_rs
 ```

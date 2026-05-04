@@ -19,7 +19,7 @@
 - **Baker link. Dev (RP2040)**
 - **XIAO-ESP32-C3 の Wi-Fi / ESP-hosted MCU**
 - **Embassy-rs no_std 非同期ランタイム**
-- **zenoh-ros2-nostd** による ROS2 互換メッセージング
+- **micro_xrce_dds_rs** と **micro-ROS Agent** による ROS2 互換メッセージング
 
 ## 主な特徴
 - エタノール蒸気を検知し「天使の分け前」を間接的に監視
@@ -54,7 +54,7 @@ GPIOs: CLK:6 MOSI:7 MISO:5 CS:10 HS:3 DR:4
 - `external/embassy` サブモジュールに含まれる `embassy-net-esp-hosted` を利用
 
 ## ソフトウェア構成
-- `zenoh-ros2-nostd`
+- `micro_xrce_dds_rs` と micro-ROS Agent
 - カスタムメッセージ `angel_nose_msgs`（エタノール濃度、液面高さ、環境データ）
 
 ## 設置・運用の流れ
@@ -155,5 +155,5 @@ idf.py build flash
 RP2040 側の依存はサブモジュールで管理します。
 
 ```bash
-git submodule update --init --recursive external/embassy external/zenoh_ros2_nostd
+git submodule update --init --recursive external/embassy external/micro_xrce_dds_rs
 ```
