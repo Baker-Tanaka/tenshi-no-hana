@@ -17,33 +17,43 @@
 
 ## v0.2 — Runtime layer (大改修)
 
-### Phase 0: 準備 (~半日)
+### Phase 0: 準備 (~半日) ✅ 2026-05-05
 
-- [ ] **DESIGN review** — `.claude/runtime_design.md` を読み返し、Section 4 (公開 API) と Section 5 (内部) に同意するメンバーを揃える。
-- [ ] **wire fixture テスト** — `external/micro_xrce_dds_rs/tests/` を新設。`CREATE_CLIENT` / `CREATE_PARTICIPANT (xml="my_node")` / `WRITE_DATA (Float32 1.0)` の現状バイト列を baseline として固定。  
-  *目的: リファクタ後も同じバイト列が出ることを CI 的に保証する。*
+- [x] **DESIGN review** — `.claude/runtime_design.md` を読み返し、Section 4 (公開 API) と Section 5 (内部) に同意するメンバーを揃える。
+- [x] **wire fixture テスト** — `session.rs` に `#[cfg(test)] mod wire_tests` を追加。`CREATE_CLIENT` / `CREATE_PARTICIPANT (xml="my_node")` / `WRITE_DATA (Float32 1.0)` の 3 ケースを実装。  
+  実行: `cargo test --no-default-features` (host target) → 3 passed。  
+  *備考: tests/ ディレクトリではなく `#[cfg(test)]` inline に変更 (private 関数へのアクセスが簡単、no_std テスト設定が不要)。*  
+  *portable-atomic: `unsafe-assume-single-core` を ARM のみに条件分岐 (`Cargo.toml` 修正)。サブクレートに `.cargo/config.toml` でホストターゲットを指定。*
+- [x] **ベースライン計測**: `cargo size-all` (wifi+sensor)  
+  - wifi_microros_sensors: text=**209864** data=56 bss=34656 total=244576  
+  - default (LED demo): text=13548 data=56 bss=1560 total=15164
 
-### Phase 1: 内部 state の `static` 化 (~1日)
+### Phase 1: 内部 state の `static` 化 (~1日) ✅ 2026-05-05
 
-- [ ] `src/rt/inner.rs` 新設。`SessionInner` 構造体に AtomicU8/U16/Bool 群を移す。
-- [ ] `src/rt/mod.rs` で `Runtime` (=`SessionInner` の `'static` ホルダ) と `Context` (=`&'static SessionInner`) を定義。
-- [ ] `Context: Copy + Send + Sync` を確認 (raw atomic + mutex なら自動で OK)。
-- [ ] `is_disconnected` / `set_disconnected` / `next_seq` / `next_req` / `alloc_*` を `SessionInner` の `&self` メソッドに。
+- [x] `src/rt/inner.rs` 新設。`SessionInner` に AtomicU8/U16/U32/Bool 群 + creation mailbox (`Mutex<CSRawMutex,()>` + `AtomicU16` + `Signal`) + `Channel<CSRawMutex,Frame,2>` + `subs Mutex` を実装。`const fn new()` あり。
+- [x] `src/rt/mod.rs` で `Runtime` (= `SessionInner` の `'static` ホルダ) と `Context` (`&'static SessionInner`) を定義。`RuntimeConfig` (session_id + client_key) も追加。
+- [x] `Context: Clone + Copy` を確認 (`#[derive(Clone, Copy)]` + `unsafe impl Send/Sync`)。
+- [x] `is_disconnected` / `set_disconnected` / `next_seq` / `next_req` / `alloc_*` / `arm_creation` / `disarm_creation` / `deliver_status` を `SessionInner` の `&self` メソッドに実装。
+- [x] `lib.rs` に `pub mod rt` + `pub use rt::{Context, Runtime, RuntimeConfig}` を追加。
+- [x] `cargo test --no-default-features` (host): 3 passed, 0 failed。
+- [x] `cargo build --features wifi,sensor --example wifi_microros_sensors` (ARM): Finished, 既存 Session API 維持確認。
 
-### Phase 2: TX queue (`zerocopy_channel`) 配線 (~1日)
+> **Phase 1 で先取りした Phase 2 内容**: `Frame` 型・`tx_channel`・`FRAME_BUF_SIZE=512` も `inner.rs` に含めた。Phase 2 では `Executor::run()` 内でこれを使うだけ。
 
-- [ ] `Frame` 型 (`bytes: [u8; FRAME_BUF_SIZE], len: usize`) を定義。`FRAME_BUF_SIZE = 384` で開始。
-- [ ] `Runtime::start()` 内で `zerocopy_channel::Channel::<Frame, 2>` を初期化、`(Sender, Receiver)` に split。
-- [ ] `Sender` を `Mutex<CSRawMutex, Sender<'static, ...>>` でラップして `SessionInner` に格納。
-- [ ] `Receiver` は `Executor` タスクが所有。
+### Phase 2+3: TX queue 配線 + Executor タスク化 (~1日) ✅ 2026-05-05
 
-### Phase 3: Executor タスク化 (~1日)
-
-- [ ] `src/rt/executor.rs` で `Executor::run()` を実装。`select(tx_rx.receive(), read_one_frame(...))` で多重化。
-- [ ] dispatch 関数 (旧 `Session::dispatch_frame`) を `Executor::dispatch_frame(&self, msg)` に移植。
-- [ ] STATUS の req_id 一致時に `creation_signal.signal(...)` 呼び出し。
-- [ ] disconnect 検出時: `set_disconnected()` + 永久 pending (v0.2 ではここでハング、user task は `Disconnected` を受け取る)。
-- [ ] `Runtime::start()` の最後で `spawner.spawn(executor_task(...))`.
+- [x] `Frame` 型 (`bytes: [u8; 512], len: usize`) — Phase 1 で `inner.rs` に定義済み。
+- [x] `tx_channel: Channel<CSRawMutex, Frame, 2>` — Phase 1 で `SessionInner` に含まれている。
+- [x] `src/rt/executor.rs` で `Executor::run()` を実装。`select(tx_channel.receive(), read_one_frame(...))` で多重化。  
+  embassy-futures 0.1 を追加。
+- [x] dispatch 関数 (旧 `Session::dispatch_frame`) を module-level `dispatch_frame` / `dispatch_data` に移植。
+- [x] STATUS 受信時に `deliver_status(req_id, result)` を呼び出す。`STATUS_OK_MATCHED` は warn + `Ok(())` で続行。
+- [x] disconnect 検出時: `set_disconnected()` + `creation_signal.signal(Err(Disconnected))` + `pending::<()>().await` でハング。
+- [x] `Runtime::start<T: Read+Write>(&'static self, transport, config) -> Result<(Context, Executor<T>), Error>` を実装。  
+  *備考: `start()` は `(Context, Executor<T>)` を返す。spawner 呼び出しはユーザー main 側に委譲 (embassy-executor を crate 依存から除外するため)。*  
+  *`session::build_create_client` と `parse_status_agent` を `pub(crate)` に昇格。*
+- [x] `cargo test --no-default-features` (host): 3 passed, 0 failed。
+- [x] `cargo build --features wifi,sensor --example wifi_microros_sensors` (ARM): Finished, 既存 Session API 維持確認。
 
 ### Phase 4: 公開 API (`Node` / `Publisher` / `Subscription`) 移植 (~1〜2日)
 
@@ -147,11 +157,12 @@ v0.2 完了。`Context` 経由のすべての I/O が動いている。
 
 ## ベンチマーク目標値 (参考)
 
-| シナリオ                           | 現状 v0.1 | 目標 v0.2 |
-| ---------------------------------- | --------- | --------- |
-| `wifi_microros_sensors` ROM (text) | ?         | ±2KB      |
-| `wifi_microros_sensors` RAM        | ?         | +1KB 程度 |
-| publish レイテンシ (1 msg)         | ?         | ≤ 5ms     |
-| publish スループット (Float32)     | ?         | ≥ 50Hz/topic |
+| シナリオ                           | 現状 v0.1     | 目標 v0.2   |
+| ---------------------------------- | ------------- | ----------- |
+| `wifi_microros_sensors` ROM (text) | **209,864 B** | ±2 KB       |
+| `wifi_microros_sensors` RAM (data+bss) | **34,712 B** | +1 KB 程度 |
+| `default` (LED demo) ROM (text)    | 13,548 B      | —           |
+| publish レイテンシ (1 msg)         | 未計測        | ≤ 5 ms      |
+| publish スループット (Float32)     | 未計測        | ≥ 50 Hz/topic |
 
-(v0.2 着手前に現状値を `cargo size-wifi` で取る。)
+(v0.1 ベースラインは 2026-05-05 `cargo size --features wifi,sensor --example wifi_microros_sensors --release -- -B` で取得。)
