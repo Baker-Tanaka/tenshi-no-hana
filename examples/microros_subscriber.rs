@@ -1,8 +1,13 @@
 // microros_subscriber.rs — Subscribe demo.
 //
-// Subscribes to /cmd_vel (geometry_msgs/Twist) and prints linear.x / angular.z
-// to defmt. Run a publisher from the ros2-node container with:
+// Subscribes to /cmd_vel (geometry_msgs/Twist) and prints linear.x / angular.z.
+// Run a publisher from the ros2-node container with:
 //   ros2 topic pub /cmd_vel geometry_msgs/msg/Twist '{linear: {x: 0.5}, angular: {z: 0.1}}'
+//
+// Architecture (v0.2):
+//   main()       — WiFi + TCP setup, Runtime::start, spawn executor + cmdvel_node
+//   xrce_exec    — Executor task (sole TCP socket owner)
+//   cmdvel_node  — creates Node, creates subscription, awaits messages
 //
 // Build:
 //   cargo build --release --no-default-features --features wifi --example microros_subscriber
@@ -27,7 +32,9 @@ use embassy_rp::spi::{Async as SpiAsync, Config as SpiConfig, Phase, Polarity, S
 use embassy_rp::{bind_interrupts, dma, peripherals::*};
 use embassy_time::{with_timeout, Delay, Duration, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
-use micro_xrce_dds_rs::{client_key, msg, Session, Subscription};
+use micro_xrce_dds_rs::{
+    client_key, msg, subscription_slot, Context, Executor, Runtime, RuntimeConfig,
+};
 use panic_probe as _;
 use static_cell::StaticCell;
 use wifi_config::AppConfig;
@@ -45,14 +52,14 @@ type MySpi = Spi<'static, SPI0, SpiAsync>;
 type MySpiDevice = ExclusiveDevice<MySpi, Output<'static>, Delay>;
 type MySpiIface = SpiInterface<MySpiDevice, Input<'static>>;
 type MyEspRunner = EspRunner<'static, MySpiIface, Output<'static>>;
+type MyExecutor = Executor<TcpSocket<'static>>;
 
 static ESP_STATE: StaticCell<State> = StaticCell::new();
 static STACK_RESOURCES: StaticCell<StackResources<4>> = StaticCell::new();
+static RUNTIME: Runtime = Runtime::new();
 
-// Subscription slot for `/cmd_vel`. Initialized by `StaticCell` at startup,
-// then registered with the session — both halves (the dispatch task and the
-// reader task) share `&'static Subscription<...>`.
-static SUB_CMDVEL: StaticCell<Subscription<msg::geometry_msgs::Twist, 4>> = StaticCell::new();
+// Subscription slot — declared once, shared between node setup and recv loop.
+subscription_slot!(static SUB_CMDVEL: msg::geometry_msgs::Twist);
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -105,7 +112,34 @@ async fn main(spawner: Spawner) {
         0x1234_5678_9abc_def0u64,
     );
     spawner.spawn(net_task(net_runner).unwrap());
-    spawner.spawn(microros_task(stack).unwrap());
+
+    while stack.config_v4().is_none() {
+        Timer::after(Duration::from_millis(500)).await;
+    }
+    info!("[microros] DHCP OK");
+
+    static TCP_RX: StaticCell<[u8; 4096]> = StaticCell::new();
+    static TCP_TX: StaticCell<[u8; 4096]> = StaticCell::new();
+    let tcp_rx = TCP_RX.init([0u8; 4096]);
+    let tcp_tx = TCP_TX.init([0u8; 4096]);
+
+    let agent_ep = cfg.agent_endpoint();
+    let mut socket = TcpSocket::new(stack, tcp_rx, tcp_tx);
+    socket.set_timeout(Some(Duration::from_secs(30)));
+    match with_timeout(Duration::from_secs(10), socket.connect(agent_ep)).await {
+        Ok(Ok(())) => info!("[microros] TCP connected"),
+        _ => defmt::panic!("[microros] TCP connect timeout"),
+    }
+
+    let (ctx, exec) = defmt::unwrap!(
+        RUNTIME
+            .start(socket, RuntimeConfig::new(0x81, client_key!()))
+            .await
+    );
+    info!("[microros] runtime started");
+
+    spawner.spawn(xrce_exec(exec).unwrap());
+    spawner.spawn(cmdvel_node(ctx).unwrap());
 }
 
 #[embassy_executor::task]
@@ -126,60 +160,26 @@ async fn net_task(mut runner: NetRunner<'static, NetDriver<'static>>) {
 }
 
 #[embassy_executor::task]
-async fn microros_task(stack: Stack<'static>) {
-    static TCP_RX: StaticCell<[u8; 4096]> = StaticCell::new();
-    static TCP_TX: StaticCell<[u8; 4096]> = StaticCell::new();
-    let cfg = AppConfig::new();
-    let agent_ep = cfg.agent_endpoint();
-    let tcp_rx = TCP_RX.init([0u8; 4096]);
-    let tcp_tx = TCP_TX.init([0u8; 4096]);
+async fn xrce_exec(exec: MyExecutor) -> ! {
+    exec.run().await
+}
 
-    let sub_cmdvel: &'static Subscription<msg::geometry_msgs::Twist, 4> =
-        SUB_CMDVEL.init(Subscription::new());
+#[embassy_executor::task]
+async fn cmdvel_node(ctx: Context) -> ! {
+    let node = defmt::unwrap!(ctx.create_node("tenshi_no_hana_sub").await);
+    defmt::unwrap!(node.create_subscription("/cmd_vel", &SUB_CMDVEL).await);
+    info!("[cmdvel_node] subscribed /cmd_vel");
 
-    while stack.config_v4().is_none() {
-        Timer::after(Duration::from_millis(500)).await;
-    }
-    info!("[microros] DHCP OK");
-
-    let mut socket = TcpSocket::new(stack, tcp_rx, tcp_tx);
-    match with_timeout(Duration::from_secs(10), socket.connect(agent_ep)).await {
-        Ok(Ok(())) => info!("[microros] TCP connected"),
-        _ => defmt::panic!("[microros] TCP connect failed"),
-    }
-
-    let mut session = defmt::unwrap!(Session::connect(socket, 0x81, client_key!()).await);
-    info!("[microros] session OK");
-
-    let node = defmt::unwrap!(session.create_node("tenshi_no_hana_sub").await);
-    defmt::unwrap!(
-        session
-            .create_subscription(&node, "/cmd_vel", sub_cmdvel)
-            .await
-    );
-    info!("[microros] subscribed /cmd_vel");
-
-    // Reader half — runs on this same task using join-style alternation.
-    // Larger systems can split into a dedicated `session.spin()` task and
-    // user task awaiting `sub_cmdvel.recv()` separately.
     loop {
-        // Drive one frame through the dispatch loop, then peek any pending
-        // samples without blocking. This single-task model avoids splitting
-        // the TcpSocket and keeps the example small.
-        if let Err(e) = session.spin_once().await {
-            error!("[microros] spin error: {}", e);
-            break;
-        }
-        while let Some(twist) = sub_cmdvel.try_recv() {
-            info!(
-                "[/cmd_vel] linear=({}, {}, {}) angular=({}, {}, {})",
-                twist.linear.x as f32,
-                twist.linear.y as f32,
-                twist.linear.z as f32,
-                twist.angular.x as f32,
-                twist.angular.y as f32,
-                twist.angular.z as f32,
-            );
-        }
+        let twist = SUB_CMDVEL.recv().await;
+        info!(
+            "[/cmd_vel] linear=({}, {}, {}) angular=({}, {}, {})",
+            twist.linear.x as f32,
+            twist.linear.y as f32,
+            twist.linear.z as f32,
+            twist.angular.x as f32,
+            twist.angular.y as f32,
+            twist.angular.z as f32,
+        );
     }
 }

@@ -8,6 +8,11 @@
 //   /angel_nose/range        sensor_msgs/Range  HC-SR04 [m]
 //   /angel_nose/imu          sensor_msgs/Imu    ICM-20602 6-axis
 //
+// Architecture (v0.2):
+//   main()       — hardware init, WiFi, TCP, Runtime::start, spawn tasks
+//   xrce_exec    — Executor task (sole TCP socket owner)
+//   sensor_node  — reads all sensors AND publishes directly (no inter-task channels)
+//
 // Build:
 //   cargo build --release --no-default-features --features wifi,sensor --example wifi_microros_sensors
 #![no_std]
@@ -35,13 +40,11 @@ use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::i2c::{Blocking as I2cBlocking, Config as I2cConfig, I2c};
 use embassy_rp::spi::{Async as SpiAsync, Config as SpiConfig, Phase, Polarity, Spi};
 use embassy_rp::{bind_interrupts, dma, peripherals::*};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::Channel;
 use embassy_time::{with_timeout, Delay, Duration, Instant, Timer};
 use embedded_hal::i2c::I2c as I2cTrait;
 use embedded_hal_bus::i2c::RefCellDevice;
 use embedded_hal_bus::spi::ExclusiveDevice;
-use micro_xrce_dds_rs::{client_key, msg, Session};
+use micro_xrce_dds_rs::{client_key, msg, Context, Executor, Runtime, RuntimeConfig};
 use panic_probe as _;
 use static_cell::StaticCell;
 use wifi_config::AppConfig;
@@ -59,24 +62,6 @@ bind_interrupts!(struct Irqs {
 const SAMPLE_PERIOD_MS: u64 = 1_000;
 const MQ3B_WARMUP_SAMPLES: u32 = (6_000 / SAMPLE_PERIOD_MS) as u32;
 
-// ── Inter-task channels (sensor task → microros task) ────────────────────────
-static TEMP_CH: Channel<CriticalSectionRawMutex, f32, 4> = Channel::new();
-static HUMI_CH: Channel<CriticalSectionRawMutex, f32, 4> = Channel::new();
-static PRES_CH: Channel<CriticalSectionRawMutex, f32, 4> = Channel::new();
-static ETOH_CH: Channel<CriticalSectionRawMutex, f32, 4> = Channel::new();
-static RANGE_CH: Channel<CriticalSectionRawMutex, f32, 4> = Channel::new();
-static IMU_CH: Channel<CriticalSectionRawMutex, ImuSample, 4> = Channel::new();
-
-#[derive(Clone, Copy)]
-struct ImuSample {
-    ax: f64,
-    ay: f64,
-    az: f64,
-    gx: f64,
-    gy: f64,
-    gz: f64,
-}
-
 type MySpi = Spi<'static, SPI0, SpiAsync>;
 type MySpiDevice = ExclusiveDevice<MySpi, Output<'static>, Delay>;
 type MySpiIface = SpiInterface<MySpiDevice, Input<'static>>;
@@ -84,10 +69,12 @@ type MyEspRunner = EspRunner<'static, MySpiIface, Output<'static>>;
 type MyI2cBus = RefCell<I2c<'static, I2C0, I2cBlocking>>;
 type MyI2cDev = RefCellDevice<'static, I2c<'static, I2C0, I2cBlocking>>;
 type MyBme280 = BME280<MyI2cDev>;
+type MyExecutor = Executor<TcpSocket<'static>>;
 
 static ESP_STATE: StaticCell<State> = StaticCell::new();
 static STACK_RESOURCES: StaticCell<StackResources<4>> = StaticCell::new();
 static I2C_BUS: StaticCell<MyI2cBus> = StaticCell::new();
+static RUNTIME: Runtime = Runtime::new();
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -166,8 +153,42 @@ async fn main(spawner: Spawner) {
     let echo = Input::new(p.PIN_3, Pull::None);
 
     spawner.spawn(net_task(net_runner).unwrap());
-    spawner.spawn(microros_task(stack).unwrap());
-    spawner.spawn(sensor_task(bme280, adc, mq3_ch, trig, echo, imu_dev).unwrap());
+
+    // Wait for DHCP.
+    while stack.config_v4().is_none() {
+        Timer::after(Duration::from_millis(500)).await;
+    }
+    info!("[microros] DHCP OK");
+
+    static TCP_RX: StaticCell<[u8; 4096]> = StaticCell::new();
+    static TCP_TX: StaticCell<[u8; 4096]> = StaticCell::new();
+    let tcp_rx = TCP_RX.init([0u8; 4096]);
+    let tcp_tx = TCP_TX.init([0u8; 4096]);
+
+    let agent_ep = cfg.agent_endpoint();
+    let mut socket = TcpSocket::new(stack, tcp_rx, tcp_tx);
+    socket.set_timeout(Some(Duration::from_secs(30)));
+    if with_timeout(Duration::from_secs(10), socket.connect(agent_ep))
+        .await
+        .map(|r| r.is_ok())
+        .unwrap_or(false)
+    {
+        info!("[microros] TCP connected");
+    } else {
+        defmt::panic!("[microros] TCP connect timeout");
+    }
+
+    let (ctx, exec) = defmt::unwrap!(
+        RUNTIME
+            .start(socket, RuntimeConfig::new(0x81, client_key!()))
+            .await
+    );
+    info!("[microros] runtime started");
+
+    spawner.spawn(xrce_exec(exec).unwrap());
+    spawner
+        .spawn(sensor_node(ctx, bme280, adc, mq3_ch, trig, echo, imu_dev))
+        .unwrap();
 }
 
 #[embassy_executor::task]
@@ -188,160 +209,52 @@ async fn net_task(mut runner: NetRunner<'static, NetDriver<'static>>) {
 }
 
 #[embassy_executor::task]
-async fn microros_task(stack: Stack<'static>) {
-    static TCP_RX: StaticCell<[u8; 4096]> = StaticCell::new();
-    static TCP_TX: StaticCell<[u8; 4096]> = StaticCell::new();
-    let cfg = AppConfig::new();
-    let agent_ep = cfg.agent_endpoint();
-    let tcp_rx = TCP_RX.init([0u8; 4096]);
-    let tcp_tx = TCP_TX.init([0u8; 4096]);
-
-    loop {
-        while stack.config_v4().is_none() {
-            Timer::after(Duration::from_millis(500)).await;
-        }
-        info!("[microros] DHCP OK");
-
-        let mut socket = TcpSocket::new(stack, tcp_rx, tcp_tx);
-        socket.set_timeout(Some(Duration::from_secs(30)));
-        if with_timeout(Duration::from_secs(10), socket.connect(agent_ep))
-            .await
-            .map(|r| r.is_ok())
-            .unwrap_or(false)
-        {
-            info!("[microros] TCP connected");
-        } else {
-            warn!("[microros] TCP connect failed, retry in 3s");
-            Timer::after(Duration::from_secs(3)).await;
-            continue;
-        }
-
-        let mut session = match Session::connect(socket, 0x81, client_key!()).await {
-            Ok(s) => {
-                info!("[microros] session OK");
-                s
-            }
-            Err(e) => {
-                error!("[microros] session connect failed: {}", e);
-                Timer::after(Duration::from_secs(3)).await;
-                continue;
-            }
-        };
-
-        let node = defmt::unwrap!(session.create_node("tenshi_no_hana").await);
-        let pub_temp = defmt::unwrap!(
-            session
-                .create_publisher::<msg::std_msgs::Float32>(&node, "/angel_nose/temperature")
-                .await
-        );
-        let pub_humi = defmt::unwrap!(
-            session
-                .create_publisher::<msg::std_msgs::Float32>(&node, "/angel_nose/humidity")
-                .await
-        );
-        let pub_pres = defmt::unwrap!(
-            session
-                .create_publisher::<msg::std_msgs::Float32>(&node, "/angel_nose/pressure")
-                .await
-        );
-        let pub_etoh = defmt::unwrap!(
-            session
-                .create_publisher::<msg::std_msgs::Float32>(&node, "/angel_nose/ethanol")
-                .await
-        );
-        let pub_range = defmt::unwrap!(
-            session
-                .create_publisher::<msg::sensor_msgs::Range>(&node, "/angel_nose/range")
-                .await
-        );
-        let pub_imu = defmt::unwrap!(
-            session
-                .create_publisher::<msg::sensor_msgs::Imu>(&node, "/angel_nose/imu")
-                .await
-        );
-        info!("[microros] all publishers ready");
-
-        loop {
-            let mut any = false;
-            if let Ok(v) = TEMP_CH.try_receive() {
-                if let Err(e) = session.publish(&pub_temp, &msg::std_msgs::Float32(v)).await {
-                    error!("[microros] temp: {}", e);
-                    break;
-                }
-                any = true;
-            }
-            if let Ok(v) = HUMI_CH.try_receive() {
-                if let Err(e) = session.publish(&pub_humi, &msg::std_msgs::Float32(v)).await {
-                    error!("[microros] humi: {}", e);
-                    break;
-                }
-                any = true;
-            }
-            if let Ok(v) = PRES_CH.try_receive() {
-                if let Err(e) = session.publish(&pub_pres, &msg::std_msgs::Float32(v)).await {
-                    error!("[microros] pres: {}", e);
-                    break;
-                }
-                any = true;
-            }
-            if let Ok(v) = ETOH_CH.try_receive() {
-                if let Err(e) = session.publish(&pub_etoh, &msg::std_msgs::Float32(v)).await {
-                    error!("[microros] etoh: {}", e);
-                    break;
-                }
-                any = true;
-            }
-            if let Ok(range_m) = RANGE_CH.try_receive() {
-                let m = msg::sensor_msgs::Range {
-                    radiation_type: msg::sensor_msgs::RANGE_ULTRASOUND,
-                    field_of_view: 0.2618,
-                    min_range: 0.02,
-                    max_range: 4.0,
-                    range: range_m,
-                    variance: 0.0,
-                };
-                if let Err(e) = session.publish(&pub_range, &m).await {
-                    error!("[microros] range: {}", e);
-                    break;
-                }
-                any = true;
-            }
-            if let Ok(s) = IMU_CH.try_receive() {
-                let m = msg::sensor_msgs::Imu {
-                    orientation: [0.0, 0.0, 0.0, 1.0],
-                    orientation_covariance: [-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                    angular_velocity: [s.gx, s.gy, s.gz],
-                    angular_velocity_covariance: [0.0; 9],
-                    linear_acceleration: [s.ax, s.ay, s.az],
-                    linear_acceleration_covariance: [0.0; 9],
-                };
-                if let Err(e) = session.publish(&pub_imu, &m).await {
-                    error!("[microros] imu: {}", e);
-                    break;
-                }
-                any = true;
-            }
-            if !any {
-                Timer::after(Duration::from_millis(10)).await;
-            }
-        }
-        warn!("[microros] connection lost, reconnecting");
-        Timer::after(Duration::from_secs(2)).await;
-    }
+async fn xrce_exec(exec: MyExecutor) -> ! {
+    exec.run().await
 }
 
+/// Reads all sensors and publishes to micro-ROS — no inter-task channels needed.
 #[embassy_executor::task]
-async fn sensor_task(
+async fn sensor_node(
+    ctx: Context,
     mut bme280: MyBme280,
     mut adc: Adc<'static, embassy_rp::adc::Async>,
     mut mq3_ch: AdcChannel<'static>,
     mut trig: Output<'static>,
     mut echo: Input<'static>,
     mut imu_dev: MyI2cDev,
-) {
+) -> ! {
+    let node = defmt::unwrap!(ctx.create_node("tenshi_no_hana").await);
+    let pub_temp = defmt::unwrap!(
+        node.create_publisher::<msg::std_msgs::Float32>("/angel_nose/temperature")
+            .await
+    );
+    let pub_humi = defmt::unwrap!(
+        node.create_publisher::<msg::std_msgs::Float32>("/angel_nose/humidity")
+            .await
+    );
+    let pub_pres = defmt::unwrap!(
+        node.create_publisher::<msg::std_msgs::Float32>("/angel_nose/pressure")
+            .await
+    );
+    let pub_etoh = defmt::unwrap!(
+        node.create_publisher::<msg::std_msgs::Float32>("/angel_nose/ethanol")
+            .await
+    );
+    let pub_range = defmt::unwrap!(
+        node.create_publisher::<msg::sensor_msgs::Range>("/angel_nose/range")
+            .await
+    );
+    let pub_imu = defmt::unwrap!(
+        node.create_publisher::<msg::sensor_msgs::Imu>("/angel_nose/imu")
+            .await
+    );
+    info!("[sensor_node] all publishers ready");
+
     let mut count: u32 = 0;
     loop {
         count += 1;
+
         if let Ok(m) = bme280.measure(&mut Delay) {
             info!(
                 "[sensor] #{}: T={} H={} P={}",
@@ -350,29 +263,42 @@ async fn sensor_task(
                 m.humidity,
                 m.pressure / 100.0
             );
-            let _ = TEMP_CH.try_send(m.temperature);
-            let _ = HUMI_CH.try_send(m.humidity);
-            let _ = PRES_CH.try_send(m.pressure / 100.0);
+            pub_temp.publish(&msg::std_msgs::Float32(m.temperature)).await.ok();
+            pub_humi.publish(&msg::std_msgs::Float32(m.humidity)).await.ok();
+            pub_pres.publish(&msg::std_msgs::Float32(m.pressure / 100.0)).await.ok();
         }
+
         if let Ok(raw) = adc.read(&mut mq3_ch).await {
             let v = raw as f32 * 5.5 / 4096.0;
             if count > MQ3B_WARMUP_SAMPLES {
-                let _ = ETOH_CH.try_send(v);
+                pub_etoh.publish(&msg::std_msgs::Float32(v)).await.ok();
             }
         }
+
         if let Some(d) = hcsr04_measure(&mut trig, &mut echo).await {
-            let _ = RANGE_CH.try_send(d);
+            let m = msg::sensor_msgs::Range {
+                radiation_type: msg::sensor_msgs::RANGE_ULTRASOUND,
+                field_of_view: 0.2618,
+                min_range: 0.02,
+                max_range: 4.0,
+                range: d,
+                variance: 0.0,
+            };
+            pub_range.publish(&m).await.ok();
         }
+
         if let Ok((ax, ay, az, gx, gy, gz)) = icm20602_read(&mut imu_dev) {
-            let _ = IMU_CH.try_send(ImuSample {
-                ax,
-                ay,
-                az,
-                gx,
-                gy,
-                gz,
-            });
+            let m = msg::sensor_msgs::Imu {
+                orientation: [0.0, 0.0, 0.0, 1.0],
+                orientation_covariance: [-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                angular_velocity: [gx, gy, gz],
+                angular_velocity_covariance: [0.0; 9],
+                linear_acceleration: [ax, ay, az],
+                linear_acceleration_covariance: [0.0; 9],
+            };
+            pub_imu.publish(&m).await.ok();
         }
+
         Timer::after(Duration::from_millis(SAMPLE_PERIOD_MS)).await;
     }
 }
