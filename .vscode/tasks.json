@@ -126,7 +126,8 @@
             "description": "Sensor example name",
             "type": "pickString",
             "options": [
-                "sensor_read"
+                "sensor_read",
+                "esp_hosted_spi_test",
             ],
             "default": "sensor_read"
         },
@@ -136,7 +137,6 @@
             "type": "pickString",
             "options": [
                 "microros_hello",
-                "esp_hosted_spi_test",
                 "microros_subscriber"
             ],
             "default": "microros_hello"
