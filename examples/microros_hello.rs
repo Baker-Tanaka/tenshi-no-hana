@@ -23,7 +23,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
-use embassy_net::{DhcpConfig, Runner as NetRunner, Stack, StackResources};
+use embassy_net::{DhcpConfig, Runner as NetRunner, StackResources};
 use embassy_net_esp_hosted_mcu::{
     self, BufferType, EspConfig, NetDriver, Runner as EspRunner, SpiInterface, State,
     MAX_SPI_BUFFER_SIZE,
@@ -177,7 +177,10 @@ async fn hello_node(ctx: Context) -> ! {
         let mut buf: HString<32> = HString::new();
         let _ = core::fmt::write(&mut buf, format_args!("hello #{}", count));
 
-        if let Err(e) = pub_hello.publish(&msg::std_msgs::String(buf.as_str())).await {
+        if let Err(e) = pub_hello
+            .publish(&msg::std_msgs::String(buf.as_str()))
+            .await
+        {
             error!("[hello_node] publish failed: {}", e);
             // v0.2: no reconnect — park on disconnect.
             core::future::pending::<()>().await;

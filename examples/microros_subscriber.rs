@@ -22,7 +22,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
-use embassy_net::{DhcpConfig, Runner as NetRunner, Stack, StackResources};
+use embassy_net::{DhcpConfig, Runner as NetRunner, StackResources};
 use embassy_net_esp_hosted_mcu::{
     self, BufferType, EspConfig, NetDriver, Runner as EspRunner, SpiInterface, State,
     MAX_SPI_BUFFER_SIZE,

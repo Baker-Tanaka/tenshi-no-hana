@@ -28,7 +28,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
-use embassy_net::{DhcpConfig, Runner as NetRunner, Stack, StackResources};
+use embassy_net::{DhcpConfig, Runner as NetRunner, StackResources};
 use embassy_net_esp_hosted_mcu::{
     self, BufferType, EspConfig, NetDriver, Runner as EspRunner, SpiInterface, State,
     MAX_SPI_BUFFER_SIZE,
@@ -186,9 +186,7 @@ async fn main(spawner: Spawner) {
     info!("[microros] runtime started");
 
     spawner.spawn(xrce_exec(exec).unwrap());
-    spawner
-        .spawn(sensor_node(ctx, bme280, adc, mq3_ch, trig, echo, imu_dev))
-        .unwrap();
+    spawner.spawn(sensor_node(ctx, bme280, adc, mq3_ch, trig, echo, imu_dev).unwrap());
 }
 
 #[embassy_executor::task]
@@ -263,9 +261,18 @@ async fn sensor_node(
                 m.humidity,
                 m.pressure / 100.0
             );
-            pub_temp.publish(&msg::std_msgs::Float32(m.temperature)).await.ok();
-            pub_humi.publish(&msg::std_msgs::Float32(m.humidity)).await.ok();
-            pub_pres.publish(&msg::std_msgs::Float32(m.pressure / 100.0)).await.ok();
+            pub_temp
+                .publish(&msg::std_msgs::Float32(m.temperature))
+                .await
+                .ok();
+            pub_humi
+                .publish(&msg::std_msgs::Float32(m.humidity))
+                .await
+                .ok();
+            pub_pres
+                .publish(&msg::std_msgs::Float32(m.pressure / 100.0))
+                .await
+                .ok();
         }
 
         if let Ok(raw) = adc.read(&mut mq3_ch).await {
