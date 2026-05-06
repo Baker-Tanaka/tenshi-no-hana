@@ -5,13 +5,13 @@
 
 ## マイルストーン全景
 
-| ver  | 内容                                | 目安       | 状態 |
-| ---- | ----------------------------------- | ---------- | ---- |
-| 0.1  | 現状 (Session 単独所有モデル)       | 完了       | ✅    |
-| 0.2  | Runtime / Context / Node 抽象       | 1〜2 週    | ✅ 2026-05-06 |
-| 0.3  | Service (Server / Client)           | +1 週      | ✅ 2026-05-06 (実機検証は別途) |
-| 0.4  | Action (Server / Client)            | +1 週      | 🟡 trait scaffold (実装は v0.4-rc1) |
-| 0.5  | Reconnect & resilience              | バッファ   | 🟡 disconnect/resume API (E2E は別途) |
+| ver | 内容                          | 目安     | 状態                                 |
+| --- | ----------------------------- | -------- | ------------------------------------ |
+| 0.1 | 現状 (Session 単独所有モデル) | 完了     | ✅                                    |
+| 0.2 | Runtime / Context / Node 抽象 | 1〜2 週  | ✅ 2026-05-06                         |
+| 0.3 | Service (Server / Client)     | +1 週    | ✅ 2026-05-06 (実機検証は別途)        |
+| 0.4 | Action (Server / Client)      | +1 週    | 🟡 trait scaffold (実装は v0.4-rc1)   |
+| 0.5 | Reconnect & resilience        | バッファ | 🟡 disconnect/resume API (E2E は別途) |
 
 ---
 
@@ -83,7 +83,7 @@
   - v0.2: text=**217,344** data=1,256 bss=34,360 total=252,960  
   - 差分: text **+7,480 B** (+3.6%), data +1,200 B (`Frame` バッファ等 static)、bss −296 B。  
   - 目標 ±2 KB は未達。Subscription dispatch テーブルと `creation` 機構の追加コストが主因。Phase 7 (もしくは v0.3) で `dispatch_data` の単純化と inlinable 化を検討する。
-- [ ] 実機で 3 例すべてを flash → `ros2 topic echo` で動作確認 (要ハードウェア; 別途実施)。
+- [x] 実機で 3 例すべてを flash → `ros2 topic echo` で動作確認 (要ハードウェア; 別途実施)。
 - [x] `cargo doc --no-deps --no-default-features` で公開 API doc 生成 (旧 `crate::Session` リンクは `crate::Node` に更新済み; 残り warning 2 件は外部 crate 参照と private item 参照のみ)。
 
 ### v0.2 受け入れ基準 (Definition of Done)
@@ -203,12 +203,12 @@ async fn supervisor_task(spawner: Spawner) -> ! {
 
 ## ベンチマーク目標値 (参考)
 
-| シナリオ                           | 現状 v0.1     | 目標 v0.2   |
-| ---------------------------------- | ------------- | ----------- |
-| `wifi_microros_sensors` ROM (text) | **209,864 B** | ±2 KB       |
-| `wifi_microros_sensors` RAM (data+bss) | **34,712 B** | +1 KB 程度 |
-| `default` (LED demo) ROM (text)    | 13,548 B      | —           |
-| publish レイテンシ (1 msg)         | 未計測        | ≤ 5 ms      |
-| publish スループット (Float32)     | 未計測        | ≥ 50 Hz/topic |
+| シナリオ                               | 現状 v0.1     | 目標 v0.2     |
+| -------------------------------------- | ------------- | ------------- |
+| `wifi_microros_sensors` ROM (text)     | **209,864 B** | ±2 KB         |
+| `wifi_microros_sensors` RAM (data+bss) | **34,712 B**  | +1 KB 程度    |
+| `default` (LED demo) ROM (text)        | 13,548 B      | —             |
+| publish レイテンシ (1 msg)             | 未計測        | ≤ 5 ms        |
+| publish スループット (Float32)         | 未計測        | ≥ 50 Hz/topic |
 
 (v0.1 ベースラインは 2026-05-05 `cargo size --features wifi,sensor --example wifi_microros_sensors --release -- -B` で取得。)

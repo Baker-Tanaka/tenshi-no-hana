@@ -28,9 +28,6 @@ cargo build --no-default-features --features wifi --example wifi_microros_sensor
 # WiFi + センサー
 cargo build --no-default-features --features wifi,sensor --example wifi_microros_sensors
 
-# 書き込み (probe-rs / Baker link. Dev 内蔵 CMSIS-DAP)
-cargo run --release
-
 # UF2 変換 (USB ブートローダ書き込み)
 elf2uf2-rs target/thumbv6m-none-eabi/release/tenshi-no-hana target/tenshi-no-hana.uf2
 
