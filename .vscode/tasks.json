@@ -137,7 +137,12 @@
             "type": "pickString",
             "options": [
                 "microros_hello",
-                "microros_subscriber"
+                "microros_subscriber",
+                "microros_service_client",
+                "microros_service_server",
+                "microros_action_client",
+                "microros_action_server",
+                "microros_resilient"
             ],
             "default": "microros_hello"
         }

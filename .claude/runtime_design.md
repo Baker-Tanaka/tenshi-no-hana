@@ -129,15 +129,15 @@ async fn imu_node(ctx: Context) -> ! {
 
 ### 4.3 型一覧
 
-| 型                        | コピー可 | 役割                                                    |
-| ------------------------- | -------- | ------------------------------------------------------- |
-| `Runtime`                 | no       | `static` に置く SessionInner ホルダ                     |
-| `Context`                 | yes      | `&'static SessionInner` の薄いラッパ。タスクの入口      |
-| `Node`                    | yes      | participant/pub/sub idx を保持。`Context` を内蔵        |
-| `Publisher<M>`            | yes      | dw_id + `Context`。値コピーで複数タスクに渡せる         |
-| `Subscription<M, N>`      | no       | `&'static` slot。`subscription_slot!()` で宣言          |
-| `Service<S> / Client<S>`  | yes      | (v0.3) requester / replier ハンドル                     |
-| `ActionServer<A> / ActionClient<A>` | yes | (v0.4) 3 service + 2 topic コンポジション         |
+| 型                                  | コピー可 | 役割                                               |
+| ----------------------------------- | -------- | -------------------------------------------------- |
+| `Runtime`                           | no       | `static` に置く SessionInner ホルダ                |
+| `Context`                           | yes      | `&'static SessionInner` の薄いラッパ。タスクの入口 |
+| `Node`                              | yes      | participant/pub/sub idx を保持。`Context` を内蔵   |
+| `Publisher<M>`                      | yes      | dw_id + `Context`。値コピーで複数タスクに渡せる    |
+| `Subscription<M, N>`                | no       | `&'static` slot。`subscription_slot!()` で宣言     |
+| `Service<S> / Client<S>`            | yes      | (v0.3) requester / replier ハンドル                |
+| `ActionServer<A> / ActionClient<A>` | yes      | (v0.4) 3 service + 2 topic コンポジション          |
 
 すべての I/O API は `async fn` で、その内部実装は **executor タスク経由** の中継のみ — ユーザータスクは TCP に直接触れない。
 
@@ -301,16 +301,16 @@ publishe path は **`tx_send_lock` のみ** を取る → user task のクリテ
 
 ### 5.6 メモリ・ROM 概算
 
-| 項目                                 | RAM (bytes) | 備考                                      |
-| ------------------------------------ | ----------- | ----------------------------------------- |
-| `SessionInner` (atomic counters)     | ~32         |                                           |
-| `creation_signal` + flag             | ~16         |                                           |
-| `Mutex<Sender>`                      | ~16         |                                           |
-| `tx_queue` storage (`Frame × 2`)     | ~800        | 384 byte body + headers slack             |
-| `rx_buf` (executor)                  | 768         | 既存の `RX_BUF_SIZE`                      |
-| `subs` HVec (8 × `&dyn`)             | ~136        | 各 16 bytes (ptr + vtable)                |
+| 項目                                   | RAM (bytes)         | 備考                          |
+| -------------------------------------- | ------------------- | ----------------------------- |
+| `SessionInner` (atomic counters)       | ~32                 |                               |
+| `creation_signal` + flag               | ~16                 |                               |
+| `Mutex<Sender>`                        | ~16                 |                               |
+| `tx_queue` storage (`Frame × 2`)       | ~800                | 384 byte body + headers slack |
+| `rx_buf` (executor)                    | 768                 | 既存の `RX_BUF_SIZE`          |
+| `subs` HVec (8 × `&dyn`)               | ~136                | 各 16 bytes (ptr + vtable)    |
 | `Subscription<M, N>` slots (per topic) | M ≤ 8 × ~64 + inbox | ユーザー宣言                  |
-| **合計 (runtime)**                   | **~1.8 KB** | + per-subscription inbox                  |
+| **合計 (runtime)**                     | **~1.8 KB**         | + per-subscription inbox      |
 
 ROM 増分 (現状の `Session` ベースから): 推定 +2 KB 程度 (zerocopy_channel + Signal mailbox)。`Publisher<M>::publish` を非 generic にする節約と相殺し、1 例当たりの増減はほぼゼロを目標。
 
@@ -440,19 +440,3 @@ impl<A: Action> GoalHandle<A> {
 ```
 
 これは純粋な公開 API レイヤーで、wire 上の追加は無い (service と topic の組み合わせ)。
-
-## 8. 移行戦略 (Breaking Changes)
-
-v0.1 → v0.2 は破壊的変更。以下の例を全部書き換える:
-
-- `examples/microros_hello.rs` — もっとも単純。1 task = 1 node。
-- `examples/microros_subscriber.rs` — subscribe demo。task が `slot.recv().await` で完結。
-- `examples/wifi_microros_sensors.rs` — 6 つの publisher を 3〜6 タスクに分割可能。`static Channel<f32, 4> × 6` を全廃。
-
-旧 API の `Session::connect / spin*` 系は削除 (互換 shim は持たない)。
-
-## 9. テスト方針
-
-- **wire-format regress**: `tests/` に CREATE_CLIENT / CREATE_PARTICIPANT / WRITE_DATA / READ_DATA の生成バイト列の固定 fixture (現状の動作 baseline) を置き、リファクタ後に同一バイト列を生成することを確認。
-- **dispatcher unit test**: 偽の `dyn SubscriptionSlot` を 3 つ登録して、合成した DATA フレームを `dispatch_data_payload` に流し、正しい slot に届くか確認。
-- **on-target smoke test**: `microros_hello` (publish only) → `microros_subscriber` (subscribe only) → `wifi_microros_sensors` (mixed) を順に flash & `ros2 topic echo` 確認。

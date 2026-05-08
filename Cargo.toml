@@ -13,6 +13,7 @@ embassy = [
     "dep:embassy-time",
     "dep:embassy-rp",
     "dep:embassy-sync",
+    "dep:embassy-futures",
 ]
 sensor = ["embassy", "dep:bme280"]
 wifi = [
@@ -58,6 +59,7 @@ embassy-rp = { version = "0.10", features = [
     "boot2-generic-03h",
 ], optional = true }
 embassy-sync = { version = "0.8", features = ["defmt"], optional = true }
+embassy-futures = { version = "0.1", optional = true }
 
 # WiFi dependencies (optional, enabled via "wifi" feature)
 embassy-net = { version = "0.7", features = [
@@ -106,6 +108,26 @@ required-features = ["wifi"]
 
 [[example]]
 name = "microros_subscriber"
+required-features = ["wifi"]
+
+[[example]]
+name = "microros_action_client"
+required-features = ["wifi"]
+
+[[example]]
+name = "microros_action_server"
+required-features = ["wifi"]
+
+[[example]]
+name = "microros_service_client"
+required-features = ["wifi"]
+
+[[example]]
+name = "microros_service_server"
+required-features = ["wifi"]
+
+[[example]]
+name = "microros_resilient"
 required-features = ["wifi"]
 
 # cargo build/run
