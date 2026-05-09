@@ -6,7 +6,7 @@
 //
 // ROS2 side setup (run on the host with rclpy installed):
 //   ros2 launch ... # not needed
-//   ros2 run examples_rclpy_minimal_action_server example
+//   ros2 run action_tutorials_py fibonacci_action_server
 //   # The standard rclpy minimal action server hosts /fibonacci.
 //   # Result of fib(8) = [0, 1, 1, 2, 3, 5, 8, 13, 21]
 //
@@ -77,7 +77,7 @@ pub struct FibonacciGoal {
 }
 
 impl Message for FibonacciGoal {
-    const TYPE_NAME: &'static str = "example_interfaces::action::dds_::Fibonacci_Goal_";
+    const TYPE_NAME: &'static str = "action_tutorials_interfaces::action::dds_::Fibonacci_Goal_";
     const MAX_SERIALIZED_SIZE: usize = 4;
 
     fn serialize(&self, w: &mut CdrWriter) {
@@ -96,7 +96,7 @@ pub struct FibonacciResult {
 }
 
 impl Message for FibonacciResult {
-    const TYPE_NAME: &'static str = "example_interfaces::action::dds_::Fibonacci_Result_";
+    const TYPE_NAME: &'static str = "action_tutorials_interfaces::action::dds_::Fibonacci_Result_";
     const MAX_SERIALIZED_SIZE: usize = 4 + 4 * FIB_MAX_LEN;
 
     fn serialize(&self, w: &mut CdrWriter) {
@@ -114,7 +114,8 @@ pub struct FibonacciFeedback {
 }
 
 impl Message for FibonacciFeedback {
-    const TYPE_NAME: &'static str = "example_interfaces::action::dds_::Fibonacci_Feedback_";
+    const TYPE_NAME: &'static str =
+        "action_tutorials_interfaces::action::dds_::Fibonacci_Feedback_";
     const MAX_SERIALIZED_SIZE: usize = 4 + 4 * FIB_MAX_LEN;
 
     fn serialize(&self, w: &mut CdrWriter) {
@@ -138,10 +139,12 @@ impl Action for Fibonacci {
 
     const ACTION_NAME: &'static str = "/fibonacci";
 
-    const GOAL_TYPE_NAME: &'static str = "example_interfaces::action::dds_::Fibonacci_Goal_";
-    const RESULT_TYPE_NAME: &'static str = "example_interfaces::action::dds_::Fibonacci_Result_";
+    const GOAL_TYPE_NAME: &'static str =
+        "action_tutorials_interfaces::action::dds_::Fibonacci_Goal_";
+    const RESULT_TYPE_NAME: &'static str =
+        "action_tutorials_interfaces::action::dds_::Fibonacci_Result_";
     const FEEDBACK_TYPE_NAME: &'static str =
-        "example_interfaces::action::dds_::Fibonacci_Feedback_";
+        "action_tutorials_interfaces::action::dds_::Fibonacci_Feedback_";
 
     const SEND_GOAL_SERVICE_NAME: &'static str = "/fibonacci/_action/send_goal";
     const GET_RESULT_SERVICE_NAME: &'static str = "/fibonacci/_action/get_result";
@@ -150,15 +153,15 @@ impl Action for Fibonacci {
     const STATUS_TOPIC_NAME: &'static str = "/fibonacci/_action/status";
 
     const SEND_GOAL_REQUEST_TYPE_NAME: &'static str =
-        "example_interfaces::action::dds_::Fibonacci_SendGoal_Request_";
+        "action_tutorials_interfaces::action::dds_::Fibonacci_SendGoal_Request_";
     const SEND_GOAL_RESPONSE_TYPE_NAME: &'static str =
-        "example_interfaces::action::dds_::Fibonacci_SendGoal_Response_";
+        "action_tutorials_interfaces::action::dds_::Fibonacci_SendGoal_Response_";
     const GET_RESULT_REQUEST_TYPE_NAME: &'static str =
-        "example_interfaces::action::dds_::Fibonacci_GetResult_Request_";
+        "action_tutorials_interfaces::action::dds_::Fibonacci_GetResult_Request_";
     const GET_RESULT_RESPONSE_TYPE_NAME: &'static str =
-        "example_interfaces::action::dds_::Fibonacci_GetResult_Response_";
+        "action_tutorials_interfaces::action::dds_::Fibonacci_GetResult_Response_";
     const FEEDBACK_MESSAGE_TYPE_NAME: &'static str =
-        "example_interfaces::action::dds_::Fibonacci_FeedbackMessage_";
+        "action_tutorials_interfaces::action::dds_::Fibonacci_FeedbackMessage_";
 }
 
 // ── Statics for the action client ────────────────────────────────────────────
