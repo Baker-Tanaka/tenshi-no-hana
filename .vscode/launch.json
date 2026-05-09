@@ -33,6 +33,68 @@
             "consoleLogLevel": "Info"
         },
         {
+            "preLaunchTask": "cargo: build wifi_microros_rover",
+            "type": "probe-rs-debug",
+            "request": "launch",
+            "name": "Flash: wifi_microros_rover (debug)",
+            "server": "host.docker.internal:50001",
+            "probe": "2e8a:106b",
+            "speed": 4000,
+            "chip": "RP2040",
+            "flashingConfig": {
+                "flashingEnabled": true,
+                "haltAfterReset": true,
+            },
+            "coreConfigs": [
+                {
+                    "coreIndex": 0,
+                    "programBinary": "tenshi-no-hana/target/thumbv6m-none-eabi/debug/examples/wifi_microros_rover",
+                    "rttEnabled": true,
+                }
+            ],
+            "pathMappings": [
+                {
+                    "remoteRoot": "tenshi-no-hana",
+                    "localRoot": "${env:LOCAL_WORKSPACE_FOLDER}"
+                }
+            ],
+            "env": {
+                "RUST_LOG": "info"
+            },
+            "consoleLogLevel": "Info"
+        },
+        {
+            "preLaunchTask": "cargo: build motor_test",
+            "type": "probe-rs-debug",
+            "request": "launch",
+            "name": "Flash: motor_test (debug)",
+            "server": "host.docker.internal:50001",
+            "probe": "2e8a:106b",
+            "speed": 4000,
+            "chip": "RP2040",
+            "flashingConfig": {
+                "flashingEnabled": true,
+                "haltAfterReset": true,
+            },
+            "coreConfigs": [
+                {
+                    "coreIndex": 0,
+                    "programBinary": "tenshi-no-hana/target/thumbv6m-none-eabi/debug/examples/motor_test",
+                    "rttEnabled": true,
+                }
+            ],
+            "pathMappings": [
+                {
+                    "remoteRoot": "tenshi-no-hana",
+                    "localRoot": "${env:LOCAL_WORKSPACE_FOLDER}"
+                }
+            ],
+            "env": {
+                "RUST_LOG": "info"
+            },
+            "consoleLogLevel": "Info"
+        },
+        {
             "preLaunchTask": "cargo: build sensor example",
             "type": "probe-rs-debug",
             "request": "launch",
@@ -110,7 +172,7 @@
             "coreConfigs": [
                 {
                     "coreIndex": 0,
-                    "programBinary": "tenshi-no-hana/target/thumbv6m-none-eabi/debug/examples/wifi_microros_sensors",
+                    "programBinary": "tenshi-no-hana/target/thumbv6m-none-eabi/debug/examples/${input:wifiSensorExample}",
                     "rttEnabled": true,
                 }
             ],
@@ -133,13 +195,13 @@
             "type": "pickString",
             "options": [
                 "sensor_read",
-                "esp_hosted_spi_test",
+                "esp_hosted_spi_test"
             ],
             "default": "sensor_read"
         },
         {
             "id": "wifiExample",
-            "description": "WiFi example name",
+            "description": "WiFi-only example name",
             "type": "pickString",
             "options": [
                 "microros_hello",
@@ -148,10 +210,19 @@
                 "microros_service_server",
                 "microros_action_client",
                 "microros_action_server",
-                "microros_resilient",
-                "wifi_microros_rover"
+                "microros_resilient"
             ],
             "default": "microros_hello"
+        },
+        {
+            "id": "wifiSensorExample",
+            "description": "WiFi + sensor example name",
+            "type": "pickString",
+            "options": [
+                "wifi_microros_rover",
+                "wifi_microros_sensors"
+            ],
+            "default": "wifi_microros_rover"
         }
     ]
 }

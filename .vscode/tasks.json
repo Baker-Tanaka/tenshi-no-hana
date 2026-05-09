@@ -43,7 +43,25 @@
         {
             "label": "cargo: build wifi+sensor example",
             "type": "shell",
-            "command": "cargo build --no-default-features --features wifi,sensor --example wifi_microros_sensors",
+            "command": "cargo build --no-default-features --features wifi,sensor --example ${input:wifiSensorExample}",
+            "group": "build",
+            "problemMatcher": [
+                "$rustc"
+            ]
+        },
+        {
+            "label": "cargo: build wifi_microros_rover",
+            "type": "shell",
+            "command": "cargo build --no-default-features --features wifi,sensor --example wifi_microros_rover",
+            "group": "build",
+            "problemMatcher": [
+                "$rustc"
+            ]
+        },
+        {
+            "label": "cargo: build motor_test",
+            "type": "shell",
+            "command": "cargo build --example motor_test",
             "group": "build",
             "problemMatcher": [
                 "$rustc"
@@ -127,13 +145,13 @@
             "type": "pickString",
             "options": [
                 "sensor_read",
-                "esp_hosted_spi_test",
+                "esp_hosted_spi_test"
             ],
             "default": "sensor_read"
         },
         {
             "id": "wifiExample",
-            "description": "WiFi example name",
+            "description": "WiFi-only example name",
             "type": "pickString",
             "options": [
                 "microros_hello",
@@ -142,10 +160,19 @@
                 "microros_service_server",
                 "microros_action_client",
                 "microros_action_server",
-                "microros_resilient",
-                "wifi_microros_rover"
+                "microros_resilient"
             ],
             "default": "microros_hello"
+        },
+        {
+            "id": "wifiSensorExample",
+            "description": "WiFi + sensor example name",
+            "type": "pickString",
+            "options": [
+                "wifi_microros_rover",
+                "wifi_microros_sensors"
+            ],
+            "default": "wifi_microros_rover"
         }
     ]
 }

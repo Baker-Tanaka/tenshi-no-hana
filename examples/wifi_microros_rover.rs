@@ -71,7 +71,7 @@ use embedded_hal::i2c::I2c as I2cTrait;
 use embedded_hal_bus::i2c::RefCellDevice;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use micro_xrce_dds_rs::{
-    client_key, msg, subscription_slot, Context, Executor, Runtime, RuntimeConfig,
+    client_key, subscription_slot, Context, Executor, Runtime, RuntimeConfig,
 };
 use panic_probe as _;
 use static_cell::StaticCell;
@@ -113,7 +113,7 @@ static STACK_RESOURCES: StaticCell<StackResources<4>> = StaticCell::new();
 static I2C_BUS: StaticCell<MyI2cBus> = StaticCell::new();
 static RUNTIME: Runtime = Runtime::new();
 
-subscription_slot!(static SUB_CMDVEL: msg::geometry_msgs::Twist);
+subscription_slot!(static SUB_CMDVEL: ros_msgs::geometry_msgs::Twist);
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -270,35 +270,42 @@ async fn xrce_exec(exec: MyExecutor) -> ! {
 
 #[embassy_executor::task]
 async fn env_node(ctx: Context, mut bme280: MyBme280) -> ! {
+    info!("[env] task start");
     let node = defmt::unwrap!(ctx.create_node("env").await);
+    info!("[env] node created");
     let pub_temp = defmt::unwrap!(
-        node.create_publisher::<msg::std_msgs::Float32>("/angel_nose/temperature")
+        node.create_publisher::<ros_msgs::std_msgs::Float32>("/angel_nose/temperature")
             .await
     );
     let pub_humi = defmt::unwrap!(
-        node.create_publisher::<msg::std_msgs::Float32>("/angel_nose/humidity")
+        node.create_publisher::<ros_msgs::std_msgs::Float32>("/angel_nose/humidity")
             .await
     );
     let pub_pres = defmt::unwrap!(
-        node.create_publisher::<msg::std_msgs::Float32>("/angel_nose/pressure")
+        node.create_publisher::<ros_msgs::std_msgs::Float32>("/angel_nose/pressure")
             .await
     );
     info!("[env] publishers ready");
 
     loop {
         if let Ok(m) = bme280.measure(&mut Delay) {
-            pub_temp
-                .publish(&msg::std_msgs::Float32(m.temperature))
+            match pub_temp
+                .publish(&ros_msgs::std_msgs::Float32 { data: m.temperature })
                 .await
-                .ok();
+            {
+                Ok(()) => info!("[env] temp pub ok {}", m.temperature),
+                Err(_) => warn!("[env] temp pub FAILED"),
+            }
             pub_humi
-                .publish(&msg::std_msgs::Float32(m.humidity))
+                .publish(&ros_msgs::std_msgs::Float32 { data: m.humidity })
                 .await
                 .ok();
             pub_pres
-                .publish(&msg::std_msgs::Float32(m.pressure / 100.0))
+                .publish(&ros_msgs::std_msgs::Float32 { data: m.pressure / 100.0 })
                 .await
                 .ok();
+        } else {
+            warn!("[env] BME280 measure FAILED");
         }
         Timer::after(Duration::from_millis(SAMPLE_PERIOD_MS)).await;
     }
@@ -310,9 +317,11 @@ async fn ethanol_node(
     mut adc: Adc<'static, embassy_rp::adc::Async>,
     mut mq3_ch: AdcChannel<'static>,
 ) -> ! {
+    info!("[ethanol] task start");
     let node = defmt::unwrap!(ctx.create_node("ethanol").await);
+    info!("[ethanol] node created");
     let pub_etoh = defmt::unwrap!(
-        node.create_publisher::<msg::std_msgs::Float32>("/angel_nose/ethanol")
+        node.create_publisher::<ros_msgs::std_msgs::Float32>("/angel_nose/ethanol")
             .await
     );
     info!("[ethanol] publisher ready");
@@ -320,11 +329,19 @@ async fn ethanol_node(
     let mut count: u32 = 0;
     loop {
         count += 1;
-        if let Ok(raw) = adc.read(&mut mq3_ch).await {
-            let v = raw as f32 * 5.5 / 4096.0;
-            if count > MQ3B_WARMUP_SAMPLES {
-                pub_etoh.publish(&msg::std_msgs::Float32(v)).await.ok();
+        match adc.read(&mut mq3_ch).await {
+            Ok(raw) => {
+                let v = raw as f32 * 5.5 / 4096.0;
+                if count > MQ3B_WARMUP_SAMPLES {
+                    match pub_etoh.publish(&ros_msgs::std_msgs::Float32 { data: v }).await {
+                        Ok(()) => info!("[ethanol] pub ok v={}", v),
+                        Err(_) => warn!("[ethanol] pub FAILED v={}", v),
+                    }
+                } else {
+                    info!("[ethanol] warmup {}/{} raw={}", count, MQ3B_WARMUP_SAMPLES, raw);
+                }
             }
+            Err(_) => warn!("[ethanol] ADC read FAILED count={}", count),
         }
         Timer::after(Duration::from_millis(SAMPLE_PERIOD_MS)).await;
     }
@@ -332,22 +349,25 @@ async fn ethanol_node(
 
 #[embassy_executor::task]
 async fn range_node(ctx: Context, mut trig: Output<'static>, mut echo: Input<'static>) -> ! {
+    info!("[range] task start");
     let node = defmt::unwrap!(ctx.create_node("range").await);
+    info!("[range] node created");
     let pub_range = defmt::unwrap!(
-        node.create_publisher::<msg::sensor_msgs::Range>("/angel_nose/range")
+        node.create_publisher::<ros_msgs::sensor_msgs::Range>("/angel_nose/range")
             .await
     );
     info!("[range] publisher ready");
 
     loop {
         if let Some(d) = hcsr04_measure(&mut trig, &mut echo).await {
-            let m = msg::sensor_msgs::Range {
-                radiation_type: msg::sensor_msgs::RANGE_ULTRASOUND,
+            let m = ros_msgs::sensor_msgs::Range {
+                radiation_type: ros_msgs::sensor_msgs::RANGE_ULTRASOUND,
                 field_of_view: 0.2618,
                 min_range: 0.02,
                 max_range: 4.0,
                 range: d,
                 variance: 0.0,
+                ..Default::default()
             };
             pub_range.publish(&m).await.ok();
         }
@@ -357,22 +377,40 @@ async fn range_node(ctx: Context, mut trig: Output<'static>, mut echo: Input<'st
 
 #[embassy_executor::task]
 async fn imu_node(ctx: Context, mut imu_dev: MyI2cDev) -> ! {
+    info!("[imu] task start");
     let node = defmt::unwrap!(ctx.create_node("imu").await);
+    info!("[imu] node created");
     let pub_imu = defmt::unwrap!(
-        node.create_publisher::<msg::sensor_msgs::Imu>("/angel_nose/imu")
+        node.create_publisher::<ros_msgs::sensor_msgs::Imu>("/angel_nose/imu")
             .await
     );
     info!("[imu] publisher ready");
 
     loop {
         if let Ok((ax, ay, az, gx, gy, gz)) = icm20602_read(&mut imu_dev) {
-            let m = msg::sensor_msgs::Imu {
-                orientation: [0.0, 0.0, 0.0, 1.0],
-                orientation_covariance: [-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                angular_velocity: [gx, gy, gz],
+            let mut ori_cov = [0.0f64; 9];
+            ori_cov[0] = -1.0; // orientation not estimated
+            let m = ros_msgs::sensor_msgs::Imu {
+                orientation: ros_msgs::geometry_msgs::Quaternion {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                    w: 1.0,
+                },
+                orientation_covariance: ori_cov,
+                angular_velocity: ros_msgs::geometry_msgs::Vector3 {
+                    x: gx,
+                    y: gy,
+                    z: gz,
+                },
                 angular_velocity_covariance: [0.0; 9],
-                linear_acceleration: [ax, ay, az],
+                linear_acceleration: ros_msgs::geometry_msgs::Vector3 {
+                    x: ax,
+                    y: ay,
+                    z: az,
+                },
                 linear_acceleration_covariance: [0.0; 9],
+                ..Default::default()
             };
             pub_imu.publish(&m).await.ok();
         }
@@ -387,7 +425,9 @@ async fn imu_node(ctx: Context, mut imu_dev: MyI2cDev) -> ! {
 ///   * no Twist within timeout        → stop motors, log once until next msg
 #[embassy_executor::task]
 async fn motor_node(ctx: Context, mut motors: Drv8835<'static>) -> ! {
+    info!("[motor] task start");
     let node = defmt::unwrap!(ctx.create_node("motor").await);
+    info!("[motor] node created");
     defmt::unwrap!(
         node.create_subscription("/angel_nose/cmd_vel", &SUB_CMDVEL)
             .await
@@ -439,12 +479,20 @@ async fn odom_node(ctx: Context) -> ! {
     use ros_msgs::std_msgs::Header;
     use ros_msgs::tf2_msgs::TFMessage;
 
+    info!("[odom] task start");
+    // Give sensor nodes a head start on entity creation. Odometry's deeply
+    // nested types take longer for the agent to register, and odom's 10 Hz
+    // publish loop saturates tx_channel for any task still creating.
+    Timer::after(Duration::from_secs(5)).await;
+    info!("[odom] starting create after delay");
     let node = defmt::unwrap!(ctx.create_node("odom").await);
+    info!("[odom] node created");
     let pub_odom = defmt::unwrap!(
         node.create_publisher::<Odometry>("/angel_nose/odom").await
     );
+    info!("[odom] /odom publisher ready");
     let pub_tf = defmt::unwrap!(node.create_publisher::<TFMessage>("/tf").await);
-    info!("[odom] publishers ready");
+    info!("[odom] /tf publisher ready — ALL ODOM READY");
 
     let mut header = Header::default();
     let _ = header.frame_id.push_str("odom");
@@ -461,14 +509,23 @@ async fn odom_node(ctx: Context) -> ! {
     tf_stamped.transform.rotation.w = 1.0;
 
     let start = Instant::now();
+    let mut iter: u32 = 0;
     loop {
+        iter += 1;
         let elapsed = (Instant::now() - start).as_micros();
         let sec = (elapsed / 1_000_000) as i32;
         let nanosec = ((elapsed % 1_000_000) * 1_000) as u32;
 
         odom.header.stamp.sec = sec;
         odom.header.stamp.nanosec = nanosec;
-        pub_odom.publish(&odom).await.ok();
+        match pub_odom.publish(&odom).await {
+            Ok(()) => {
+                if iter <= 3 || iter % 10 == 0 {
+                    info!("[odom] /odom pub ok iter={}", iter);
+                }
+            }
+            Err(_) => warn!("[odom] /odom pub FAILED iter={}", iter),
+        }
 
         tf_stamped.header.stamp.sec = sec;
         tf_stamped.header.stamp.nanosec = nanosec;
@@ -476,7 +533,7 @@ async fn odom_node(ctx: Context) -> ! {
         let _ = tf_msg.transforms.push(tf_stamped.clone());
         pub_tf.publish(&tf_msg).await.ok();
 
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after(Duration::from_millis(200)).await;
     }
 }
 
