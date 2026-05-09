@@ -4,7 +4,7 @@
 // with incrementing operands, prints the sum.
 //
 // ROS2 side setup (run on the host):
-//   ros2 run examples_rclpy_minimal_service service     # hosts /add_two_ints
+//   ros2 run demo_nodes_py add_two_ints_server     # hosts /add_two_ints
 // or any other AddTwoInts server you have running.
 //
 // Agent side:
