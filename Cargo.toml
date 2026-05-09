@@ -83,6 +83,9 @@ micro-xrce-dds-rs = { path = "external/micro_xrce_dds_rs", default-features = fa
 ], optional = true }
 bme280 = { version = "0.5", features = ["defmt"], optional = true }
 
+[build-dependencies]
+roslibrust_codegen = "0.20"
+
 [dev-dependencies]
 defmt-test = "0.4"
 
@@ -101,6 +104,14 @@ required-features = ["wifi"]
 [[example]]
 name = "wifi_microros_sensors"
 required-features = ["wifi", "sensor"]
+
+[[example]]
+name = "wifi_microros_rover"
+required-features = ["wifi", "sensor"]
+
+[[example]]
+name = "motor_test"
+required-features = ["embassy"]
 
 [[example]]
 name = "microros_hello"

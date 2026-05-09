@@ -55,6 +55,47 @@ ROS2 経由でリアルタイム監視する。
 
 ---
 
+## 2.1 ROS2 メッセージ・コードジェネレーション
+
+`build.rs` が起動時に `msgs/` 以下の vendored `.msg` ファイルを
+[`roslibrust_codegen`](https://crates.io/crates/roslibrust_codegen) (v0.20) で
+パースし、`$OUT_DIR/ros_msgs.rs` に no_std 互換の Rust 型を生成する。
+`src/ros_msgs.rs` がそれを `include!` し、example からは
+`#[path = "../src/ros_msgs.rs"]` で参照する。
+
+```text
+msgs/                          # vendored .msg + package.xml
+  ├── builtin_interfaces/      # Time, Duration
+  ├── std_msgs/                # Header
+  ├── geometry_msgs/           # Vector3, Point, Quaternion, Pose, Twist,
+  │                            # PoseWithCovariance, TwistWithCovariance,
+  │                            # Transform, TransformStamped
+  ├── sensor_msgs/             # JointState
+  ├── nav_msgs/                # Odometry
+  └── tf2_msgs/                # TFMessage
+       │
+       ▼ build.rs
+$OUT_DIR/ros_msgs.rs            # pub mod nav_msgs { pub struct Odometry { ... }
+                                #   impl Message for Odometry { ... } }
+       │
+       ▼ include!()
+src/ros_msgs.rs
+       │
+       ▼ #[path]
+examples/wifi_microros_rover.rs # use ros_msgs::nav_msgs::Odometry;
+```
+
+設計方針:
+- **`roslibrust_codegen` の AST のみ利用**。標準の token emitter は std 型 (`String`, `Vec`) を出すので、AST (`ParsedMessageFile { fields, constants }`) を独自 emitter で歩いて no_std 出力に変換する。
+- 可変長フィールドは `heapless::String<32>` / `heapless::Vec<T, 8>` (デフォルト)。`.msg` 側で `string<=64 frame_id` / `T[<=4]` と書けば個別オーバーライド可能。
+- 各メッセージ型は `Clone + Debug + Default` と `micro_xrce_dds_rs::Message` (DDS type name + serialize/deserialize) を実装。サブメッセージとして埋め込み用の `serialize_inline` / `deserialize_inline` も emit。
+- `MAX_SERIALIZED_SIZE` は build.rs が依存グラフをトポロジカル順に解決して bottom-up 計算。
+- 既存手書きの `external/micro_xrce_dds_rs/src/ros2/msg/*.rs` (Float32, Twist, Range, Imu) はそのまま維持し、生成型と共存。
+
+新メッセージを追加するには `msgs/<package>/msg/Foo.msg` を置くだけ。`build.rs` の `cargo:rerun-if-changed=msgs` が自動で再生成をトリガする。
+
+`FRAME_BUF_SIZE` (`external/micro_xrce_dds_rs/src/rt/inner.rs`) は `nav_msgs/Odometry` (~770 B) を 1 フレームで送るため 512 → **1024** にバンプ済み。
+
 ## 3. ソフトウェアレイヤー
 
 ```text
@@ -120,16 +161,21 @@ ROS2 経由でリアルタイム監視する。
 
 | RP2040 GPIO    | 機能             | 接続先             |
 | -------------- | ---------------- | ------------------ |
-| GP4 (I2C0 SDA) | I2C データ       | BME280 SDA         |
-| GP5 (I2C0 SCL) | I2C クロック     | BME280 SCL         |
-| GP26 (ADC0)    | ADC 入力         | MQ-3B アナログ出力 |
-| GP10           | PWM (左モーター) | DRV8835 AIN1       |
-| GP11           | PWM (右モーター) | DRV8835 BIN1       |
-| GP2            | GPIO (Trigger)   | HC-SR04 Trig       |
-| GP3            | GPIO (Echo)      | HC-SR04 Echo       |
-| GP20           | LED (赤)         | ステータス LED     |
-| GP21           | LED (橙)         | ステータス LED     |
-| GP22           | LED (緑)         | ステータス LED     |
+| GP4 (I2C0 SDA)  | I2C データ                  | BME280 SDA           |
+| GP5 (I2C0 SCL)  | I2C クロック                | BME280 SCL           |
+| GP26 (ADC0)     | ADC 入力                    | MQ-3B アナログ出力   |
+| GP10            | GPIO Out (左 PHASE)         | DRV8835 AIN1 (APHASE)  |
+| GP11 (PWM5_B)   | PWM (左 ENABLE)             | DRV8835 AIN2 (AENABLE) |
+| GP12            | GPIO Out (右 PHASE)         | DRV8835 BIN1 (BPHASE)  |
+| GP9 (PWM4_B)    | PWM (右 ENABLE)             | DRV8835 BIN2 (BENABLE) |
+| GP2             | GPIO (Trigger)              | HC-SR04 Trig         |
+| GP3             | GPIO (Echo)                 | HC-SR04 Echo         |
+| GP20            | LED (赤)                    | ステータス LED       |
+| GP21            | LED (橙)                    | ステータス LED       |
+| GP22            | LED (緑)                    | ステータス LED       |
+
+> DRV8835 は **Phase/Enable モード** (MODE ピンを VCC にプル) で使用。
+> `xPHASE` で方向、`xENABLE` の PWM duty で速度を決める最小ピン構成。
 
 ### 4.4 注意事項
 
@@ -249,10 +295,12 @@ cargo build --no-default-features --features wifi,sensor --example wifi_microros
 
 ### Phase 3: モーター制御
 
-| ステップ | 内容                      | 成果物                    |
-| -------- | ------------------------- | ------------------------- |
-| 3-1      | DRV8835 PWM 制御          | 2WD 前後進・旋回          |
-| 3-2      | `/cmd_vel` サブスクライブ | Twist → モーター PWM 変換 |
+| ステップ | 内容                      | 成果物                                  | 状態 |
+| -------- | ------------------------- | --------------------------------------- | ---- |
+| 3-1      | DRV8835 PWM 制御          | 2WD 前後進・旋回 (`src/drv8835.rs`)     | ✅    |
+| 3-2      | `/cmd_vel` サブスクライブ | Twist → モーター PWM 変換 + 500 ms WD   | ✅    |
+| 3-3      | ROS2 .msg コードジェネ    | `build.rs` + `roslibrust_codegen`       | ✅    |
+| 3-4      | `/odom` + `/tf` パブリッシュ | `nav_msgs/Odometry`, `tf2_msgs/TFMessage` | ✅    |
 
 ### Phase 4: 障害物回避・ナビゲーション
 
@@ -348,31 +396,4 @@ ros2 topic echo /chatter std_msgs/msg/String
 - [embassy-net-esp-hosted](https://github.com/embassy-rs/embassy/tree/embassy-net-esp-hosted-v0.3.0/embassy-net-esp-hosted)
 - [esp-hosted-mcu](https://github.com/espressif/esp-hosted-mcu)
 - [Seeed Studio XIAO ESP32C3](https://wiki.seeedstudio.com/XIAO_ESP32C3_Getting_Started/)
-
-## Note
-
-### STATUS_OK_MATCHED 警告について
-結論: 機能的には完全に正常で、許容して OK。実害はありません。
-何が起きているか
-XRCE-DDS プロトコルでは agent が CREATE のレスポンスとして 2種類の OK を返します:
-
-ステータス	意味
-STATUS_OK	新規にエンティティを作成した
-STATUS_OK_MATCHED	同じ client_key + OID + XML のエンティティが既に存在したので、それを そのまま再利用 した
-STATUS_OK_MATCHED が出る条件は、典型的には：
-
-同じファームウェア（同じ client_key!()）を再起動した
-agent はまだ前回のエンティティを覚えている
-これは Fast-DDS の正常な「冪等な作成」の挙動です。
-
-解消する方法
-方法	効果	副作用
-docker compose down && up -d で agent 完全再起動	警告が消える	再起動するたびに必要
-client_key!() を毎回ランダムに変更	警告が消える	agent 側で entity が累積（メモリリーク的）
-警告メッセージのログレベルを warn! → debug! に下げる	通常運用でノイズ消える	真の問題が起きた時に気付きにくい
-何もしない（許容）	—	警告が出続ける
-推奨
-何もしないか、debug! に下げるのが現実的です。STATUS_OK_MATCHED 自体は agent の正しい動作で、後続の CREATE が 本当に 失敗するときだけ問題が顕在化します（その場合は別途 AgentRejected(0x80) 等のエラーが出る）。
-
-ログレベルを下げたい場合は変更可能です（executor.rs の該当行を warn! → debug! に変えるだけ）。希望があれば修正します。
 

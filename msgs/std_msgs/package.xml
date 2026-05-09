@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>std_msgs</name>
+  <version>0.0.0</version>
+  <description>Vendored upstream subset for codegen.</description>
+  <maintainer email="dev@example.com">tenshi-no-hana</maintainer>
+  <license>Apache-2.0</license>
+  <depend>builtin_interfaces</depend>
+</package>

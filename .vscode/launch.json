@@ -148,7 +148,8 @@
                 "microros_service_server",
                 "microros_action_client",
                 "microros_action_server",
-                "microros_resilient"
+                "microros_resilient",
+                "wifi_microros_rover"
             ],
             "default": "microros_hello"
         }

@@ -64,4 +64,15 @@ size-all = [
   "--",
   "-B",
 ]
+size-rover = [
+  "size",
+  "--no-default-features",
+  "--features",
+  "wifi,sensor",
+  "--example",
+  "wifi_microros_rover",
+  "--release",
+  "--",
+  "-B",
+]
 nm-top = "nm --release -- --print-size --size-sort --radix=d"
