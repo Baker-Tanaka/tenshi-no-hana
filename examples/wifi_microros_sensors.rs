@@ -8,10 +8,16 @@
 //   /angel_nose/range        sensor_msgs/Range  HC-SR04 [m]
 //   /angel_nose/imu          sensor_msgs/Imu    ICM-20602 6-axis
 //
-// Architecture (v0.2):
-//   main()       — hardware init, WiFi, TCP, Runtime::start, spawn tasks
-//   xrce_exec    — Executor task (sole TCP socket owner)
-//   sensor_node  — reads all sensors AND publishes directly (no inter-task channels)
+// Architecture (v0.3 — one task per ROS2 node):
+//   main()        — hardware init, WiFi, TCP, Runtime::start, spawn tasks
+//   xrce_exec     — Executor task (sole TCP socket owner)
+//   env_node      — BME280:    /temperature /humidity /pressure
+//   ethanol_node  — MQ-3B:     /ethanol
+//   range_node    — HC-SR04:   /range
+//   imu_node      — ICM-20602: /imu
+//
+// `Context` is `Copy` (it wraps `&'static SessionInner`), so each spawn just
+// receives its own copy and creates a fully independent ROS2 Node.
 //
 // Build:
 //   cargo build --release --no-default-features --features wifi,sensor --example wifi_microros_sensors
@@ -186,7 +192,10 @@ async fn main(spawner: Spawner) {
     info!("[microros] runtime started");
 
     spawner.spawn(xrce_exec(exec).unwrap());
-    spawner.spawn(sensor_node(ctx, bme280, adc, mq3_ch, trig, echo, imu_dev).unwrap());
+    spawner.spawn(env_node(ctx, bme280).unwrap());
+    spawner.spawn(ethanol_node(ctx, adc, mq3_ch).unwrap());
+    spawner.spawn(range_node(ctx, trig, echo).unwrap());
+    spawner.spawn(imu_node(ctx, imu_dev).unwrap());
 }
 
 #[embassy_executor::task]
@@ -211,18 +220,12 @@ async fn xrce_exec(exec: MyExecutor) -> ! {
     exec.run().await
 }
 
-/// Reads all sensors and publishes to micro-ROS — no inter-task channels needed.
+// One task per ROS2 node.  Each receives a `Context` by value (it is `Copy`),
+// creates an independent `Node` on the agent, and owns its own peripherals.
+
 #[embassy_executor::task]
-async fn sensor_node(
-    ctx: Context,
-    mut bme280: MyBme280,
-    mut adc: Adc<'static, embassy_rp::adc::Async>,
-    mut mq3_ch: AdcChannel<'static>,
-    mut trig: Output<'static>,
-    mut echo: Input<'static>,
-    mut imu_dev: MyI2cDev,
-) -> ! {
-    let node = defmt::unwrap!(ctx.create_node("tenshi_no_hana").await);
+async fn env_node(ctx: Context, mut bme280: MyBme280) -> ! {
+    let node = defmt::unwrap!(ctx.create_node("env").await);
     let pub_temp = defmt::unwrap!(
         node.create_publisher::<msg::std_msgs::Float32>("/angel_nose/temperature")
             .await
@@ -235,27 +238,14 @@ async fn sensor_node(
         node.create_publisher::<msg::std_msgs::Float32>("/angel_nose/pressure")
             .await
     );
-    let pub_etoh = defmt::unwrap!(
-        node.create_publisher::<msg::std_msgs::Float32>("/angel_nose/ethanol")
-            .await
-    );
-    let pub_range = defmt::unwrap!(
-        node.create_publisher::<msg::sensor_msgs::Range>("/angel_nose/range")
-            .await
-    );
-    let pub_imu = defmt::unwrap!(
-        node.create_publisher::<msg::sensor_msgs::Imu>("/angel_nose/imu")
-            .await
-    );
-    info!("[sensor_node] all publishers ready");
+    info!("[env] publishers ready");
 
     let mut count: u32 = 0;
     loop {
         count += 1;
-
         if let Ok(m) = bme280.measure(&mut Delay) {
             info!(
-                "[sensor] #{}: T={} H={} P={}",
+                "[env] #{}: T={} H={} P={}",
                 count,
                 m.temperature,
                 m.humidity,
@@ -274,14 +264,46 @@ async fn sensor_node(
                 .await
                 .ok();
         }
+        Timer::after(Duration::from_millis(SAMPLE_PERIOD_MS)).await;
+    }
+}
 
+#[embassy_executor::task]
+async fn ethanol_node(
+    ctx: Context,
+    mut adc: Adc<'static, embassy_rp::adc::Async>,
+    mut mq3_ch: AdcChannel<'static>,
+) -> ! {
+    let node = defmt::unwrap!(ctx.create_node("ethanol").await);
+    let pub_etoh = defmt::unwrap!(
+        node.create_publisher::<msg::std_msgs::Float32>("/angel_nose/ethanol")
+            .await
+    );
+    info!("[ethanol] publisher ready");
+
+    let mut count: u32 = 0;
+    loop {
+        count += 1;
         if let Ok(raw) = adc.read(&mut mq3_ch).await {
             let v = raw as f32 * 5.5 / 4096.0;
             if count > MQ3B_WARMUP_SAMPLES {
                 pub_etoh.publish(&msg::std_msgs::Float32(v)).await.ok();
             }
         }
+        Timer::after(Duration::from_millis(SAMPLE_PERIOD_MS)).await;
+    }
+}
 
+#[embassy_executor::task]
+async fn range_node(ctx: Context, mut trig: Output<'static>, mut echo: Input<'static>) -> ! {
+    let node = defmt::unwrap!(ctx.create_node("range").await);
+    let pub_range = defmt::unwrap!(
+        node.create_publisher::<msg::sensor_msgs::Range>("/angel_nose/range")
+            .await
+    );
+    info!("[range] publisher ready");
+
+    loop {
         if let Some(d) = hcsr04_measure(&mut trig, &mut echo).await {
             let m = msg::sensor_msgs::Range {
                 radiation_type: msg::sensor_msgs::RANGE_ULTRASOUND,
@@ -293,7 +315,20 @@ async fn sensor_node(
             };
             pub_range.publish(&m).await.ok();
         }
+        Timer::after(Duration::from_millis(SAMPLE_PERIOD_MS)).await;
+    }
+}
 
+#[embassy_executor::task]
+async fn imu_node(ctx: Context, mut imu_dev: MyI2cDev) -> ! {
+    let node = defmt::unwrap!(ctx.create_node("imu").await);
+    let pub_imu = defmt::unwrap!(
+        node.create_publisher::<msg::sensor_msgs::Imu>("/angel_nose/imu")
+            .await
+    );
+    info!("[imu] publisher ready");
+
+    loop {
         if let Ok((ax, ay, az, gx, gy, gz)) = icm20602_read(&mut imu_dev) {
             let m = msg::sensor_msgs::Imu {
                 orientation: [0.0, 0.0, 0.0, 1.0],
@@ -305,7 +340,6 @@ async fn sensor_node(
             };
             pub_imu.publish(&m).await.ok();
         }
-
         Timer::after(Duration::from_millis(SAMPLE_PERIOD_MS)).await;
     }
 }
