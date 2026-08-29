@@ -16,17 +16,8 @@ Toolchain: stable `1.94.1`（`rust-toolchain.toml`）。nightly 不要。
 ## Build Commands
 
 ```sh
-# デフォルト (Embassy LED デモ)
+# 統合 rover firmware
 cargo build --release
-
-# センサーサンプル
-cargo build --no-default-features --features sensor --example sensor_read
-
-# WiFi サンプル (wifi feature は embassy を含む)
-cargo build --no-default-features --features wifi --example wifi_microros_sensors
-
-# WiFi + センサー
-cargo build --no-default-features --features wifi,sensor --example wifi_microros_sensors
 
 # UF2 変換 (USB ブートローダ書き込み)
 elf2uf2-rs target/thumbv6m-none-eabi/release/tenshi-no-hana target/tenshi-no-hana.uf2
@@ -43,10 +34,6 @@ WiFi ビルドには `wifi_config.json` が必要（`.gitignore` 済み）。`wi
 src/
   main.rs          # Embassy multi-task LED demo (エントリポイント)
   wifi_config.rs   # AppConfig: wifi_config.json → build.rs → env vars → compile-time定数
-examples/
-  wifi_microros_sensors.rs   # WiFi → micro-ROS Agent → ROS2 センサーデータ (BME280 + MQ-3B)
-  sensor_read.rs           # BME280 + MQ-3B スタンドアロン読み取り
-  esp_hosted_spi_test.rs   # SPI 通信テスト
 external/
   embassy/                 # git submodule (oktima fork, upstream-esp-hosted-mcu branch)
     embassy-net-esp-hosted-mcu/  # WiFi ドライバー (MCU variant, SpiInterface ベース)
@@ -67,7 +54,7 @@ Application (Publisher / Subscription)
                           └── RP2040 ↔ ESP32-C3 (SPI Full-Duplex)
 ```
 
-### Task Structure (WiFi examples)
+### Task Structure
 
 ```
 main()
@@ -77,10 +64,11 @@ main()
   └── app_task         — Publisher.send() / Subscription.try_recv()
 ```
 
-### Reference Implementation
+### ROS 2 interface
 
-新しい WiFi 実装を書くときのテンプレート:
-- `examples/wifi_microros_sensors.rs` (ESP-hosted + micro-ROS Agent 版、最もシンプルなセンサー publish)
+- Subscribe: `/cmd_vel` (`geometry_msgs/Twist`)
+- Publish: `/imu/data` (`sensor_msgs/Imu`), `/odom` (`nav_msgs/Odometry`), `/tf` (`tf2_msgs/TFMessage`)
+- Odometry is open-loop because the chassis has no wheel encoders.
 
 ## Code Style
 
@@ -98,7 +86,6 @@ main()
 | ------------------- | ---------------------------------------------------------- |
 | `embassy` (default) | Embassy executor/time/rp/sync                              |
 | `hal-rt`            | rp2040-hal runtime                                         |
-| `sensor`            | embassy + BME280                                           |
 | `wifi`              | embassy + embassy-net + esp-hosted-mcu + micro_xrce_dds_rs |
 
 `--features wifi` のみで embassy も有効になる（`embassy,wifi` は冗長）。
@@ -137,13 +124,20 @@ v0.9 は `embedded-io-async = "0.7"` を要求するが、`micro_xrce_dds_rs` �
 | GP14 (GPIO out) | Reset      | GPIO21        | D6       |
 
 ### Sensors & Actuators
-| RP2040         | Function       | Device             |
-| -------------- | -------------- | ------------------ |
-| GP4/GP5        | I2C0 SDA/SCL   | BME280             |
-| GP26           | ADC0           | MQ-3B (エタノール) |
-| GP10/GP11      | PWM            | DRV8835 (モーター) |
-| GP2/GP3        | GPIO Trig/Echo | HC-SR04 (超音波)   |
-| GP20/GP21/GP22 | GPIO           | ステータス LED     |
+| RP2040         | Function            | Device                                 |
+| -------------- | ------------------- | -------------------------------------- |
+| GP4/GP5        | I2C0 SDA/SCL        | ICM-20602 (IMU)                        |
+| GP26           | ADC0                | MQ-3B (エタノール、10k/15k 分圧経由)   |
+| GP10/GP11      | GPIO/PWM (左 PH/EN) | DRV8835 AIN1/AIN2 (AE-DRV8835-S)       |
+| GP12/GP9       | GPIO/PWM (右 PH/EN) | DRV8835 BIN1/BIN2                      |
+| GP2/GP3        | GPIO Trig/Echo      | HC-SR04 (超音波、Echo は 10k/15k 分圧) |
+| GP20/GP21/GP22 | GPIO                | ステータス LED                         |
+
+### Power (9V 電池)
+| レール | レギュレーター          | 供給先                                           |
+| ------ | ----------------------- | ------------------------------------------------ |
+| 5V     | BP5293-50 (5V/1A DC-DC) | XIAO 5V ピン、MQ-3B VCC、HC-SR04 VCC、DRV8835 VM |
+| 3.3V   | NJU7223F33 (3.3V/500mA) | Baker link 3V3、ICM-20602、DRV8835 VCC           |
 
 ## Supplementary Instruction Files
 
