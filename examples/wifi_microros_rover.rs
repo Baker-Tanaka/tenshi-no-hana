@@ -37,14 +37,14 @@
 #![no_std]
 #![no_main]
 
-#[path = "../src/wifi_config.rs"]
-mod wifi_config;
-#[path = "../src/drv8835.rs"]
-mod drv8835;
 #[path = "../src/diff_drive.rs"]
 mod diff_drive;
+#[path = "../src/drv8835.rs"]
+mod drv8835;
 #[path = "../src/ros_msgs.rs"]
 mod ros_msgs;
+#[path = "../src/wifi_config.rs"]
+mod wifi_config;
 
 use bme280::i2c::BME280;
 use core::cell::RefCell;
@@ -70,10 +70,9 @@ use embassy_time::{with_timeout, Delay, Duration, Instant, Timer};
 use embedded_hal::i2c::I2c as I2cTrait;
 use embedded_hal_bus::i2c::RefCellDevice;
 use embedded_hal_bus::spi::ExclusiveDevice;
-use micro_xrce_dds_rs::{
-    client_key, subscription_slot, Context, Executor, Runtime, RuntimeConfig,
-};
+use micro_xrce_dds_rs::{client_key, subscription_slot, Context, Executor, Runtime, RuntimeConfig};
 use panic_probe as _;
+use portable_atomic::{AtomicU32, AtomicU64, Ordering};
 use static_cell::StaticCell;
 use wifi_config::AppConfig;
 
@@ -93,6 +92,8 @@ bind_interrupts!(struct Irqs {
 const SAMPLE_PERIOD_MS: u64 = 1_000;
 const MQ3B_WARMUP_SAMPLES: u32 = (6_000 / SAMPLE_PERIOD_MS) as u32;
 const CMD_VEL_TIMEOUT_MS: u64 = 500;
+const ODOM_PUBLISH_PERIOD_MS: u64 = 100;
+const MAX_MOTOR_DUTY_SCALE: f32 = 0.6;
 
 /// FT-DC-002 chassis: ~130 mm wheel separation, top speed ~0.4 m/s.
 /// Hand-calibrate `MAX_WHEEL_SPEED` once encoders are available.
@@ -112,6 +113,12 @@ static ESP_STATE: StaticCell<State> = StaticCell::new();
 static STACK_RESOURCES: StaticCell<StackResources<4>> = StaticCell::new();
 static I2C_BUS: StaticCell<MyI2cBus> = StaticCell::new();
 static RUNTIME: Runtime = Runtime::new();
+
+// Shared motion state from `motor_node` to `odom_node`.
+// Values are the realized base velocity after wheel saturation and duty limit.
+static MOTION_LINEAR_BITS: AtomicU32 = AtomicU32::new(0);
+static MOTION_ANGULAR_BITS: AtomicU32 = AtomicU32::new(0);
+static MOTION_LAST_UPDATE_US: AtomicU64 = AtomicU64::new(0);
 
 subscription_slot!(static SUB_CMDVEL: ros_msgs::geometry_msgs::Twist);
 
@@ -290,7 +297,9 @@ async fn env_node(ctx: Context, mut bme280: MyBme280) -> ! {
     loop {
         if let Ok(m) = bme280.measure(&mut Delay) {
             match pub_temp
-                .publish(&ros_msgs::std_msgs::Float32 { data: m.temperature })
+                .publish(&ros_msgs::std_msgs::Float32 {
+                    data: m.temperature,
+                })
                 .await
             {
                 Ok(()) => info!("[env] temp pub ok {}", m.temperature),
@@ -301,7 +310,9 @@ async fn env_node(ctx: Context, mut bme280: MyBme280) -> ! {
                 .await
                 .ok();
             pub_pres
-                .publish(&ros_msgs::std_msgs::Float32 { data: m.pressure / 100.0 })
+                .publish(&ros_msgs::std_msgs::Float32 {
+                    data: m.pressure / 100.0,
+                })
                 .await
                 .ok();
         } else {
@@ -333,12 +344,18 @@ async fn ethanol_node(
             Ok(raw) => {
                 let v = raw as f32 * 5.5 / 4096.0;
                 if count > MQ3B_WARMUP_SAMPLES {
-                    match pub_etoh.publish(&ros_msgs::std_msgs::Float32 { data: v }).await {
+                    match pub_etoh
+                        .publish(&ros_msgs::std_msgs::Float32 { data: v })
+                        .await
+                    {
                         Ok(()) => info!("[ethanol] pub ok v={}", v),
                         Err(_) => warn!("[ethanol] pub FAILED v={}", v),
                     }
                 } else {
-                    info!("[ethanol] warmup {}/{} raw={}", count, MQ3B_WARMUP_SAMPLES, raw);
+                    info!(
+                        "[ethanol] warmup {}/{} raw={}",
+                        count, MQ3B_WARMUP_SAMPLES, raw
+                    );
                 }
             }
             Err(_) => warn!("[ethanol] ADC read FAILED count={}", count),
@@ -437,26 +454,38 @@ async fn motor_node(ctx: Context, mut motors: Drv8835<'static>) -> ! {
     let cfg = DiffDriveConfig::new(WHEEL_SEPARATION_M, MAX_WHEEL_SPEED_MPS);
     let mut stopped = true;
     motors.stop();
+    publish_motion_state(0.0, 0.0);
 
     loop {
-        match with_timeout(
-            Duration::from_millis(CMD_VEL_TIMEOUT_MS),
-            SUB_CMDVEL.recv(),
-        )
-        .await
-        {
+        match with_timeout(Duration::from_millis(CMD_VEL_TIMEOUT_MS), SUB_CMDVEL.recv()).await {
             Ok(twist) => {
                 let lx = twist.linear.x as f32;
                 let az = twist.angular.z as f32;
                 let (l, r) = twist_to_wheels(&cfg, lx, az);
-                motors.set_left(l);
-                motors.set_right(r);
+
+                // Limit duty to protect 3V-rated motors when VM=5V.
+                let l_limited = l * MAX_MOTOR_DUTY_SCALE;
+                let r_limited = r * MAX_MOTOR_DUTY_SCALE;
+                motors.set_left(l_limited);
+                motors.set_right(r_limited);
+
+                // Convert limited wheel commands back to realized base twist.
+                let v_l = l_limited * MAX_WHEEL_SPEED_MPS;
+                let v_r = r_limited * MAX_WHEEL_SPEED_MPS;
+                let lin_realized = 0.5 * (v_l + v_r);
+                let ang_realized = (v_r - v_l) / WHEEL_SEPARATION_M;
+                publish_motion_state(lin_realized, ang_realized);
+
                 stopped = false;
-                info!("[/cmd_vel] lx={} az={} -> l={} r={}", lx, az, l, r);
+                info!(
+                    "[/cmd_vel] lx={} az={} -> l={} r={} (limited l={} r={})",
+                    lx, az, l, r, l_limited, r_limited
+                );
             }
             Err(_) => {
                 if !stopped {
                     motors.stop();
+                    publish_motion_state(0.0, 0.0);
                     stopped = true;
                     warn!("[motor] cmd_vel timeout, stop");
                 }
@@ -487,9 +516,7 @@ async fn odom_node(ctx: Context) -> ! {
     info!("[odom] starting create after delay");
     let node = defmt::unwrap!(ctx.create_node("odom").await);
     info!("[odom] node created");
-    let pub_odom = defmt::unwrap!(
-        node.create_publisher::<Odometry>("/angel_nose/odom").await
-    );
+    let pub_odom = defmt::unwrap!(node.create_publisher::<Odometry>("/angel_nose/odom").await);
     info!("[odom] /odom publisher ready");
     let pub_tf = defmt::unwrap!(node.create_publisher::<TFMessage>("/tf").await);
     info!("[odom] /tf publisher ready — ALL ODOM READY");
@@ -508,16 +535,51 @@ async fn odom_node(ctx: Context) -> ! {
     let _ = tf_stamped.child_frame_id.push_str("base_link");
     tf_stamped.transform.rotation.w = 1.0;
 
+    let mut x = 0.0f32;
+    let mut y = 0.0f32;
+    let mut yaw = 0.0f32;
+
     let start = Instant::now();
+    let mut last_tick = Instant::now();
     let mut iter: u32 = 0;
     loop {
         iter += 1;
+        let now = Instant::now();
+        let dt = (now - last_tick).as_micros() as f32 / 1_000_000.0;
+        last_tick = now;
+
+        let (lin, ang) = read_motion_state_with_timeout(now);
+        x += lin * dt * cos_approx(yaw);
+        y += lin * dt * sin_approx(yaw);
+        yaw += ang * dt;
+
+        let half = 0.5 * yaw;
+        let qz = sin_approx(half);
+        let qw = cos_approx(half);
+
         let elapsed = (Instant::now() - start).as_micros();
         let sec = (elapsed / 1_000_000) as i32;
         let nanosec = ((elapsed % 1_000_000) * 1_000) as u32;
 
         odom.header.stamp.sec = sec;
         odom.header.stamp.nanosec = nanosec;
+        odom.pose.pose.position.x = x as f64;
+        odom.pose.pose.position.y = y as f64;
+        odom.pose.pose.position.z = 0.0;
+        odom.pose.pose.orientation.x = 0.0;
+        odom.pose.pose.orientation.y = 0.0;
+        odom.pose.pose.orientation.z = qz as f64;
+        odom.pose.pose.orientation.w = qw as f64;
+        odom.twist.twist.linear.x = lin as f64;
+        odom.twist.twist.angular.z = ang as f64;
+
+        // Modest covariance for open-loop dead-reckoning.
+        odom.pose.covariance[0] = 0.04;
+        odom.pose.covariance[7] = 0.04;
+        odom.pose.covariance[35] = 0.20;
+        odom.twist.covariance[0] = 0.09;
+        odom.twist.covariance[35] = 0.30;
+
         match pub_odom.publish(&odom).await {
             Ok(()) => {
                 if iter <= 3 || iter % 10 == 0 {
@@ -529,12 +591,61 @@ async fn odom_node(ctx: Context) -> ! {
 
         tf_stamped.header.stamp.sec = sec;
         tf_stamped.header.stamp.nanosec = nanosec;
+        tf_stamped.transform.translation.x = x as f64;
+        tf_stamped.transform.translation.y = y as f64;
+        tf_stamped.transform.translation.z = 0.0;
+        tf_stamped.transform.rotation.x = 0.0;
+        tf_stamped.transform.rotation.y = 0.0;
+        tf_stamped.transform.rotation.z = qz as f64;
+        tf_stamped.transform.rotation.w = qw as f64;
         let mut tf_msg = TFMessage::default();
         let _ = tf_msg.transforms.push(tf_stamped.clone());
         pub_tf.publish(&tf_msg).await.ok();
 
-        Timer::after(Duration::from_millis(200)).await;
+        Timer::after(Duration::from_millis(ODOM_PUBLISH_PERIOD_MS)).await;
     }
+}
+
+fn publish_motion_state(linear: f32, angular: f32) {
+    MOTION_LINEAR_BITS.store(linear.to_bits(), Ordering::Relaxed);
+    MOTION_ANGULAR_BITS.store(angular.to_bits(), Ordering::Relaxed);
+    MOTION_LAST_UPDATE_US.store(Instant::now().as_micros(), Ordering::Relaxed);
+}
+
+fn read_motion_state_with_timeout(now: Instant) -> (f32, f32) {
+    let last = MOTION_LAST_UPDATE_US.load(Ordering::Relaxed);
+    if now.as_micros().saturating_sub(last) > CMD_VEL_TIMEOUT_MS * 1_000 {
+        return (0.0, 0.0);
+    }
+    (
+        f32::from_bits(MOTION_LINEAR_BITS.load(Ordering::Relaxed)),
+        f32::from_bits(MOTION_ANGULAR_BITS.load(Ordering::Relaxed)),
+    )
+}
+
+fn wrap_pi(mut x: f32) -> f32 {
+    const PI: f32 = core::f32::consts::PI;
+    const TAU: f32 = 2.0 * core::f32::consts::PI;
+    while x > PI {
+        x -= TAU;
+    }
+    while x < -PI {
+        x += TAU;
+    }
+    x
+}
+
+fn sin_approx(x: f32) -> f32 {
+    // 5th-order polynomial around 0 after wrapping to [-pi, pi].
+    let x = wrap_pi(x);
+    let x2 = x * x;
+    x * (1.0 - x2 / 6.0 + (x2 * x2) / 120.0)
+}
+
+fn cos_approx(x: f32) -> f32 {
+    let x = wrap_pi(x);
+    let x2 = x * x;
+    1.0 - x2 / 2.0 + (x2 * x2) / 24.0
 }
 
 async fn hcsr04_measure(trig: &mut Output<'_>, echo: &mut Input<'_>) -> Option<f32> {

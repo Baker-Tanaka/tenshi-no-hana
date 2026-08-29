@@ -1,19 +1,23 @@
-// esp_hosted_spi_test.rs — Verify SPI communication with ESP32-C3 (esp-hosted-mcu)
+// esp_hosted_spi_test.rs — Verify SPI communication with ESP-hosted-MCU.
 //
-// Diagnostic test for SPI bus between Baker link. Dev (RP2040) and XIAO ESP32-C3.
+// Diagnostic test for SPI bus between Baker link. Dev (RP2040) and XIAO ESP32-Cx.
 //
 // Steps:
 //   1. GPIO init
 //   2. Pin state diagnostics — manual reset + HS/DR monitoring
 //   3. SPI0 + esp-hosted driver start
 //   4. Control::init() — IOCTL communication test
-//   5. Control::get_status()
-//
+//   5. Control::connect() using wifi_config.json
+//   6. Control::get_status()
+
 // Build:
 //   cargo build --no-default-features --features wifi --example esp_hosted_spi_test
 //
 #![no_std]
 #![no_main]
+
+#[path = "../src/wifi_config.rs"]
+mod wifi_config;
 
 use defmt::*;
 use defmt_rtt as _;
@@ -28,6 +32,7 @@ use embassy_time::{with_timeout, Delay, Duration, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use panic_probe as _;
 use static_cell::StaticCell;
+use wifi_config::AppConfig;
 
 bind_interrupts!(struct Irqs {
     DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>, dma::InterruptHandler<DMA_CH1>;
@@ -48,11 +53,11 @@ async fn main(spawner: Spawner) {
     Timer::after(Duration::from_millis(500)).await;
     info!("========================================");
     info!("  ESP-Hosted SPI Communication Test");
-    info!("  Build: v3 — SPI Mode 3 (CPOL=1/CPHA=1)");
+    info!("  Build: v5 — SPI Mode 3 (CPOL=1/CPHA=1) @ 2 MHz");
     info!("========================================");
 
     // ── Step 1: GPIO init ────────────────────────────────────────────────────
-    info!("[1/5] GPIO init...");
+    info!("[1/6] GPIO init...");
     info!("  SCK=GP18 MOSI=GP19 MISO=GP16 CS=GP17");
     info!("  HS=GP15  DR=GP13   RST=GP14");
 
@@ -61,10 +66,10 @@ async fn main(spawner: Spawner) {
     let handshake = Input::new(p.PIN_15, Pull::Down);
     let data_ready = Input::new(p.PIN_13, Pull::Down);
     let mut reset = Output::new(p.PIN_14, Level::Low); // ESP32 held in reset
-    info!("[1/5] OK");
+    info!("[1/6] OK");
 
     // ── Step 2: Pin state diagnostics ────────────────────────────────────────
-    info!("[2/5] Pin diagnostics (manual reset cycle)...");
+    info!("[2/6] Pin diagnostics (manual reset cycle)...");
 
     // ESP32 should be in reset (GP14=LOW) — HS/DR should be LOW
     Timer::after_millis(100).await;
@@ -113,13 +118,15 @@ async fn main(spawner: Spawner) {
     // Hold ESP32 in reset for the driver to do its own reset cycle
     reset.set_low();
     Timer::after_millis(100).await;
-    info!("[2/5] OK — pin diagnostics complete");
+    info!("[2/6] OK — pin diagnostics complete");
 
     // ── Step 3: SPI0 + driver init ───────────────────────────────────────────
-    info!("[3/5] SPI0 init + esp-hosted driver start...");
+    info!("[3/6] SPI0 init + esp-hosted driver start...");
 
     let mut spi_cfg = SpiConfig::default();
-    spi_cfg.frequency = 10_000_000; // 10 MHz
+    // 4 MHz is more tolerant to wiring quality/noise during WiFi traffic bursts.
+    // 2 MHz: maximize tolerance to noise/brownout during WiFi TX current spikes.
+    spi_cfg.frequency = 2_000_000;
     spi_cfg.polarity = Polarity::IdleHigh; // CPOL=1
     spi_cfg.phase = Phase::CaptureOnSecondTransition; // CPHA=1  (SPI Mode 3, matches ESP32)
 
@@ -138,10 +145,10 @@ async fn main(spawner: Spawner) {
     spawner.spawn(esp_hosted_task(esp_runner).unwrap());
     let _ = net_device;
 
-    info!("[3/5] OK — driver started, runner resets ESP32 internally");
+    info!("[3/6] OK — driver started, runner resets ESP32 internally");
 
     // ── Step 4: Control::init() — IOCTL communication test ──────────────────
-    info!("[4/5] control.init() (heartbeat + wifi mode + MAC)...");
+    info!("[4/6] control.init() (heartbeat + wifi mode + MAC)...");
 
     match with_timeout(
         Duration::from_secs(15),
@@ -158,19 +165,19 @@ async fn main(spawner: Spawner) {
     .await
     {
         Ok(Ok(())) => {
-            info!("[4/5] OK — control.init() succeeded!");
+            info!("[4/6] OK — control.init() succeeded!");
             info!("  SPI communication confirmed working");
         }
         Ok(Err(e)) => {
             match e {
                 embassy_net_esp_hosted_mcu::Error::Failed(code) => {
-                    error!("[4/5] FAIL — control.init() error: Failed({})", code)
+                    error!("[4/6] FAIL — control.init() error: Failed({})", code)
                 }
                 embassy_net_esp_hosted_mcu::Error::Timeout => {
-                    error!("[4/5] FAIL — control.init() error: Timeout")
+                    error!("[4/6] FAIL — control.init() error: Timeout")
                 }
                 embassy_net_esp_hosted_mcu::Error::Internal => {
-                    error!("[4/5] FAIL — control.init() error: Internal")
+                    error!("[4/6] FAIL — control.init() error: Internal")
                 }
             }
             loop {
@@ -178,7 +185,7 @@ async fn main(spawner: Spawner) {
             }
         }
         Err(_) => {
-            error!("[4/5] FAIL — control.init() timeout (15s)");
+            error!("[4/6] FAIL — control.init() timeout (15s)");
             error!("  Runner could not communicate with ESP32 over SPI.");
             if !hs_seen_high {
                 error!("  LIKELY CAUSE: HS never went HIGH in pin diagnostics");
@@ -187,10 +194,12 @@ async fn main(spawner: Spawner) {
                 error!("  LIKELY CAUSE: DR never went HIGH in pin diagnostics");
             }
             if hs_seen_high && dr_seen_high {
-                error!("  HS/DR worked in manual test but driver failed.");
-                error!("  Possible: embassy-net-esp-hosted v0.3 targets");
-                error!("  esp-hosted-fg, not esp-hosted-mcu v2.x.");
-                error!("  Try esp-hosted-fg firmware on ESP32-C3.");
+                error!("  HS/DR OK — but no EventEspInit (769) was received.");
+                error!("  This means the ESP did NOT reboot on the host RST line:");
+                error!("    - it kept running from a previous power-on, and");
+                error!("    - it only emits heartbeats (770), never a fresh 769.");
+                error!("  ACTION: power-cycle the ESP32-C6, or fix the RST wiring");
+                error!("  (GP14 -> C6 reset pin / EN). Then init() will complete.");
             }
             loop {
                 Timer::after_secs(60).await;
@@ -198,12 +207,56 @@ async fn main(spawner: Spawner) {
         }
     }
 
-    // ── Step 5: get_status() — further IOCTL validation ─────────────────────
-    info!("[5/5] control.get_status()...");
+    // ── Step 5: connect() using compile-time wifi_config.json ───────────────
+    let cfg = AppConfig::new();
+    info!("[5/6] control.connect() to \"{}\"...", cfg.wifi_ssid);
+    match with_timeout(
+        Duration::from_secs(45),
+        control.connect(cfg.wifi_ssid, cfg.wifi_password),
+    )
+    .await
+    {
+        Ok(Ok(true)) => info!("[5/6] OK — connected"),
+        Ok(Ok(false)) => {
+            error!("[5/6] FAIL — association rejected");
+            let _ = control.reset_device().await;
+            loop {
+                Timer::after_secs(60).await;
+            }
+        }
+        Ok(Err(e)) => {
+            match e {
+                embassy_net_esp_hosted_mcu::Error::Failed(code) => {
+                    error!("[5/6] FAIL — connect error: Failed({})", code)
+                }
+                embassy_net_esp_hosted_mcu::Error::Timeout => {
+                    error!("[5/6] FAIL — connect error: Timeout")
+                }
+                embassy_net_esp_hosted_mcu::Error::Internal => {
+                    error!("[5/6] FAIL — connect error: Internal")
+                }
+            }
+            let _ = control.reset_device().await;
+            loop {
+                Timer::after_secs(60).await;
+            }
+        }
+        Err(_) => {
+            error!("[5/6] FAIL — connect timeout (45s)");
+            error!("  If this repeats, recheck AP reachability and power stability.");
+            let _ = control.reset_device().await;
+            loop {
+                Timer::after_secs(60).await;
+            }
+        }
+    }
+
+    // ── Step 6: get_status() — post-connect validation ─────────────────────
+    info!("[6/6] control.get_status()...");
 
     match with_timeout(Duration::from_secs(5), control.get_status()).await {
         Ok(Ok(status)) => {
-            info!("[5/5] OK — WiFi status:");
+            info!("[6/6] OK — WiFi status:");
             info!(
                 "  SSID: \"{=str}\"  RSSI: {} dBm  Ch: {}",
                 status.ssid.as_str(),
@@ -213,23 +266,24 @@ async fn main(spawner: Spawner) {
         }
         Ok(Err(e)) => match e {
             embassy_net_esp_hosted_mcu::Error::Failed(code) => {
-                warn!("[5/5] get_status() Failed({}) — OK if not connected", code)
+                warn!("[6/6] get_status() Failed({})", code)
             }
             embassy_net_esp_hosted_mcu::Error::Timeout => {
-                warn!("[5/5] get_status() Timeout")
+                warn!("[6/6] get_status() Timeout")
             }
             embassy_net_esp_hosted_mcu::Error::Internal => {
-                warn!("[5/5] get_status() Internal error")
+                warn!("[6/6] get_status() Internal error")
             }
         },
         Err(_) => {
-            warn!("[5/5] get_status() timeout");
+            warn!("[6/6] get_status() timeout");
         }
     }
 
     info!("========================================");
     info!("  SPI TEST PASSED");
-    info!("  RP2040 <-> ESP32-C3 communication OK");
+    info!("  RP2040 <-> ESP32 communication OK");
+    info!("  wifi_config.json credentials applied");
     info!("========================================");
 
     loop {

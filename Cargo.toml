@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["embassy"]
+default = ["wifi", "sensor"]
 hal-rt = ["rp2040-hal/rt"]
 embassy = [
     "dep:embassy-executor",
@@ -107,6 +107,10 @@ required-features = ["wifi", "sensor"]
 
 [[example]]
 name = "wifi_microros_rover"
+required-features = ["wifi", "sensor"]
+
+[[example]]
+name = "hw_test"
 required-features = ["wifi", "sensor"]
 
 [[example]]
