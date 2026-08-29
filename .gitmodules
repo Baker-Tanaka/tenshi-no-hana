@@ -5,4 +5,4 @@
 
 [submodule "external/micro_xrce_dds_rs"]
 	path = external/micro_xrce_dds_rs
-	url = https://github.com/tkn-aip40/micro-xrce-dds-rs.git
+	url = https://github.com/Baker-Tanaka/micro_xrce_dds_rs.git

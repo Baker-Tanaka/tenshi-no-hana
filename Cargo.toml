@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["wifi", "sensor"]
+default = ["wifi"]
 hal-rt = ["rp2040-hal/rt"]
 embassy = [
     "dep:embassy-executor",
@@ -15,7 +15,6 @@ embassy = [
     "dep:embassy-sync",
     "dep:embassy-futures",
 ]
-sensor = ["embassy", "dep:bme280"]
 wifi = [
     "embassy",
     "dep:embassy-net",
@@ -32,6 +31,7 @@ wifi = [
 [dependencies]
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
+libm = "0.2"
 embedded-hal = { version = "1.0.0" }
 embedded_hal_0_2 = { package = "embedded-hal", version = "0.2.5", features = [
     "unproven",
@@ -81,7 +81,6 @@ portable-atomic = { version = "1", features = [
 micro-xrce-dds-rs = { path = "external/micro_xrce_dds_rs", default-features = false, features = [
     "defmt",
 ], optional = true }
-bme280 = { version = "0.5", features = ["defmt"], optional = true }
 
 [build-dependencies]
 roslibrust_codegen = "0.20"
@@ -92,58 +91,6 @@ defmt-test = "0.4"
 [[test]]
 name = "example_test"
 harness = false
-
-[[example]]
-name = "sensor_read"
-required-features = ["sensor"]
-
-[[example]]
-name = "esp_hosted_spi_test"
-required-features = ["wifi"]
-
-[[example]]
-name = "wifi_microros_sensors"
-required-features = ["wifi", "sensor"]
-
-[[example]]
-name = "wifi_microros_rover"
-required-features = ["wifi", "sensor"]
-
-[[example]]
-name = "hw_test"
-required-features = ["wifi", "sensor"]
-
-[[example]]
-name = "motor_test"
-required-features = ["embassy"]
-
-[[example]]
-name = "microros_hello"
-required-features = ["wifi"]
-
-[[example]]
-name = "microros_subscriber"
-required-features = ["wifi"]
-
-[[example]]
-name = "microros_action_client"
-required-features = ["wifi"]
-
-[[example]]
-name = "microros_action_server"
-required-features = ["wifi"]
-
-[[example]]
-name = "microros_service_client"
-required-features = ["wifi"]
-
-[[example]]
-name = "microros_service_server"
-required-features = ["wifi"]
-
-[[example]]
-name = "microros_resilient"
-required-features = ["wifi"]
 
 # cargo build/run
 [profile.dev]

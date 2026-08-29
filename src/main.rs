@@ -5,19 +5,14 @@
 // micro-ROS Agent over WiFi/TCP, and subscribes to `/cmd_vel` to drive a
 // DRV8835 dual H-bridge in PH/EN mode.
 //
-// ROS2 interface (namespace `/angel_nose/`):
+// ROS2 interface:
 //
 //   Subscriptions:
-//     /angel_nose/cmd_vel       geometry_msgs/Twist
+//     /cmd_vel                  geometry_msgs/Twist
 //
 //   Publications:
-//     /angel_nose/temperature   std_msgs/Float32   BME280 [°C]
-//     /angel_nose/humidity      std_msgs/Float32   BME280 [%]
-//     /angel_nose/pressure      std_msgs/Float32   BME280 [hPa]
-//     /angel_nose/ethanol       std_msgs/Float32   MQ-3B  [V]
-//     /angel_nose/range         sensor_msgs/Range  HC-SR04
-//     /angel_nose/imu           sensor_msgs/Imu    ICM-20602
-//     /angel_nose/odom          nav_msgs/Odometry  open-loop dead-reckoning
+//     /imu/data                 sensor_msgs/Imu    ICM-20602
+//     /odom                     nav_msgs/Odometry  open-loop dead-reckoning
 //     /tf                       tf2_msgs/TFMessage odom → base_link
 //
 // Safety: a 500 ms watchdog stops the motors if no /cmd_vel arrives — same
@@ -27,28 +22,22 @@
 // (see docs/Note.md for `docker compose up -d`):
 //
 //   ros2 topic list
-//   ros2 topic echo /angel_nose/temperature
-//   ros2 topic echo /angel_nose/humidity
-//   ros2 topic echo /angel_nose/pressure
-//   ros2 topic echo /angel_nose/ethanol
-//   ros2 topic echo /angel_nose/range
-//   ros2 topic echo /angel_nose/imu
-//   ros2 topic echo /angel_nose/odom
+//   ros2 topic echo /imu/data
+//   ros2 topic echo /odom
 //   ros2 topic echo /tf
 //   ros2 run teleop_twist_keyboard teleop_twist_keyboard \
-//     --ros-args -r cmd_vel:=/angel_nose/cmd_vel
+//     --ros-args -r cmd_vel:=/cmd_vel
 //
 // Build (default features already select wifi+sensor, see Cargo.toml):
 //   cargo build --release
 #![no_std]
 #![no_main]
 
-mod diff_drive;
 mod drv8835;
+mod icm20602;
 mod ros_msgs;
 mod wifi_config;
 
-use bme280::i2c::BME280;
 use core::cell::RefCell;
 use cortex_m_rt::exception;
 use defmt::*;
@@ -60,26 +49,25 @@ use embassy_net_esp_hosted_mcu::{
     self, BufferType, EspConfig, NetDriver, Runner as EspRunner, SpiInterface, State,
     MAX_SPI_BUFFER_SIZE,
 };
-use embassy_rp::adc::{
-    Adc, Channel as AdcChannel, Config as AdcConfig, InterruptHandler as AdcIrqHandler,
-};
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::i2c::{Blocking as I2cBlocking, Config as I2cConfig, I2c};
 use embassy_rp::pwm::{Config as PwmConfig, Pwm};
 use embassy_rp::spi::{Async as SpiAsync, Config as SpiConfig, Phase, Polarity, Spi};
 use embassy_rp::{bind_interrupts, dma, peripherals::*};
 use embassy_time::{with_timeout, Delay, Duration, Instant, Timer};
-use embedded_hal::i2c::I2c as I2cTrait;
 use embedded_hal_bus::i2c::RefCellDevice;
 use embedded_hal_bus::spi::ExclusiveDevice;
-use micro_xrce_dds_rs::{client_key, subscription_slot, Context, Executor, Runtime, RuntimeConfig};
+use micro_xrce_dds_rs::{
+    client_key, subscription_slot, Context, Executor, Runtime, RuntimeConfig, TimestampReply,
+};
 use panic_probe as _;
-use portable_atomic::{AtomicU32, AtomicU64, Ordering};
+use portable_atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
 use static_cell::StaticCell;
 use wifi_config::AppConfig;
 
-use diff_drive::{twist_to_wheels, DiffDriveConfig};
 use drv8835::{Drv8835, DEFAULT_PWM_TOP};
+use tenshi_no_hana::diff_drive::{twist_to_wheels, DiffDriveConfig};
+use tenshi_no_hana::odometry::OpenLoopOdometry;
 
 #[exception]
 unsafe fn HardFault(_ef: &cortex_m_rt::ExceptionFrame) -> ! {
@@ -88,11 +76,9 @@ unsafe fn HardFault(_ef: &cortex_m_rt::ExceptionFrame) -> ! {
 
 bind_interrupts!(struct Irqs {
     DMA_IRQ_0    => dma::InterruptHandler<DMA_CH0>, dma::InterruptHandler<DMA_CH1>;
-    ADC_IRQ_FIFO => AdcIrqHandler;
 });
 
-const SAMPLE_PERIOD_MS: u64 = 1_000;
-const MQ3B_WARMUP_SAMPLES: u32 = (6_000 / SAMPLE_PERIOD_MS) as u32;
+const IMU_PERIOD_MS: u64 = 20;
 const CMD_VEL_TIMEOUT_MS: u64 = 500;
 const ODOM_PUBLISH_PERIOD_MS: u64 = 100;
 const MAX_MOTOR_DUTY_SCALE: f32 = 0.6;
@@ -108,7 +94,6 @@ type MySpiIface = SpiInterface<MySpiDevice, Input<'static>>;
 type MyEspRunner = EspRunner<'static, MySpiIface, Output<'static>>;
 type MyI2cBus = RefCell<I2c<'static, I2C0, I2cBlocking>>;
 type MyI2cDev = RefCellDevice<'static, I2c<'static, I2C0, I2cBlocking>>;
-type MyBme280 = BME280<MyI2cDev>;
 type MyExecutor = Executor<TcpSocket<'static>>;
 
 static ESP_STATE: StaticCell<State> = StaticCell::new();
@@ -121,6 +106,8 @@ static RUNTIME: Runtime = Runtime::new();
 static MOTION_LINEAR_BITS: AtomicU32 = AtomicU32::new(0);
 static MOTION_ANGULAR_BITS: AtomicU32 = AtomicU32::new(0);
 static MOTION_LAST_UPDATE_US: AtomicU64 = AtomicU64::new(0);
+static AGENT_TIME_OFFSET_NS: AtomicI64 = AtomicI64::new(0);
+static AGENT_TIME_VALID: AtomicBool = AtomicBool::new(false);
 
 subscription_slot!(static SUB_CMDVEL: ros_msgs::geometry_msgs::Twist);
 
@@ -176,29 +163,18 @@ async fn main(spawner: Spawner) {
         0x1234_5678_9abc_def0u64,
     );
 
-    // I2C0: BME280 @ 0x76, ICM-20602 @ 0x68
+    // I2C0: ICM-20602 @ 0x68
     let raw_i2c = I2c::new_blocking(p.I2C0, p.PIN_5, p.PIN_4, I2cConfig::default());
     let i2c_bus = I2C_BUS.init(RefCell::new(raw_i2c));
 
-    let bme_dev = RefCellDevice::new(i2c_bus);
-    let mut bme280: MyBme280 = BME280::new_primary(bme_dev);
-    match bme280.init(&mut Delay) {
-        Ok(()) => info!("[bme280] initialized"),
-        Err(_) => error!("[bme280] init failed — check wiring"),
-    }
     {
         let mut imu_tmp = RefCellDevice::new(i2c_bus);
-        match icm20602_init(&mut imu_tmp).await {
+        match icm20602::init(&mut imu_tmp).await {
             Ok(()) => info!("[imu] ICM-20602 ready"),
             Err(()) => error!("[imu] ICM-20602 init failed"),
         }
     }
     let imu_dev = RefCellDevice::new(i2c_bus);
-
-    let adc = Adc::new(p.ADC, Irqs, AdcConfig::default());
-    let mq3_ch = AdcChannel::new_pin(p.PIN_26, Pull::None);
-    let trig = Output::new(p.PIN_2, Level::Low);
-    let echo = Input::new(p.PIN_3, Pull::None);
 
     // DRV8835 (PH/EN mode, MODE pin tied HIGH externally)
     //   APHASE=GP10  AENABLE=GP11 (PWM5_B)
@@ -247,12 +223,10 @@ async fn main(spawner: Spawner) {
     info!("[microros] runtime started");
 
     spawner.spawn(xrce_exec(exec).unwrap());
-    spawner.spawn(env_node(ctx, bme280).unwrap());
-    spawner.spawn(ethanol_node(ctx, adc, mq3_ch).unwrap());
-    spawner.spawn(range_node(ctx, trig, echo).unwrap());
     spawner.spawn(imu_node(ctx, imu_dev).unwrap());
     spawner.spawn(motor_node(ctx, motors).unwrap());
     spawner.spawn(odom_node(ctx).unwrap());
+    spawner.spawn(time_sync_node(ctx).unwrap());
 }
 
 #[embassy_executor::task]
@@ -278,135 +252,20 @@ async fn xrce_exec(exec: MyExecutor) -> ! {
 }
 
 #[embassy_executor::task]
-async fn env_node(ctx: Context, mut bme280: MyBme280) -> ! {
-    info!("[env] task start");
-    let node = defmt::unwrap!(ctx.create_node("env").await);
-    info!("[env] node created");
-    let pub_temp = defmt::unwrap!(
-        node.create_publisher::<ros_msgs::std_msgs::Float32>("/angel_nose/temperature")
-            .await
-    );
-    let pub_humi = defmt::unwrap!(
-        node.create_publisher::<ros_msgs::std_msgs::Float32>("/angel_nose/humidity")
-            .await
-    );
-    let pub_pres = defmt::unwrap!(
-        node.create_publisher::<ros_msgs::std_msgs::Float32>("/angel_nose/pressure")
-            .await
-    );
-    info!("[env] publishers ready");
-
-    loop {
-        if let Ok(m) = bme280.measure(&mut Delay) {
-            match pub_temp
-                .publish(&ros_msgs::std_msgs::Float32 {
-                    data: m.temperature,
-                })
-                .await
-            {
-                Ok(()) => info!("[env] temp pub ok {}", m.temperature),
-                Err(_) => warn!("[env] temp pub FAILED"),
-            }
-            pub_humi
-                .publish(&ros_msgs::std_msgs::Float32 { data: m.humidity })
-                .await
-                .ok();
-            pub_pres
-                .publish(&ros_msgs::std_msgs::Float32 {
-                    data: m.pressure / 100.0,
-                })
-                .await
-                .ok();
-        } else {
-            warn!("[env] BME280 measure FAILED");
-        }
-        Timer::after(Duration::from_millis(SAMPLE_PERIOD_MS)).await;
-    }
-}
-
-#[embassy_executor::task]
-async fn ethanol_node(
-    ctx: Context,
-    mut adc: Adc<'static, embassy_rp::adc::Async>,
-    mut mq3_ch: AdcChannel<'static>,
-) -> ! {
-    info!("[ethanol] task start");
-    let node = defmt::unwrap!(ctx.create_node("ethanol").await);
-    info!("[ethanol] node created");
-    let pub_etoh = defmt::unwrap!(
-        node.create_publisher::<ros_msgs::std_msgs::Float32>("/angel_nose/ethanol")
-            .await
-    );
-    info!("[ethanol] publisher ready");
-
-    let mut count: u32 = 0;
-    loop {
-        count += 1;
-        match adc.read(&mut mq3_ch).await {
-            Ok(raw) => {
-                let v = raw as f32 * 5.5 / 4096.0;
-                if count > MQ3B_WARMUP_SAMPLES {
-                    match pub_etoh
-                        .publish(&ros_msgs::std_msgs::Float32 { data: v })
-                        .await
-                    {
-                        Ok(()) => info!("[ethanol] pub ok v={}", v),
-                        Err(_) => warn!("[ethanol] pub FAILED v={}", v),
-                    }
-                } else {
-                    info!(
-                        "[ethanol] warmup {}/{} raw={}",
-                        count, MQ3B_WARMUP_SAMPLES, raw
-                    );
-                }
-            }
-            Err(_) => warn!("[ethanol] ADC read FAILED count={}", count),
-        }
-        Timer::after(Duration::from_millis(SAMPLE_PERIOD_MS)).await;
-    }
-}
-
-#[embassy_executor::task]
-async fn range_node(ctx: Context, mut trig: Output<'static>, mut echo: Input<'static>) -> ! {
-    info!("[range] task start");
-    let node = defmt::unwrap!(ctx.create_node("range").await);
-    info!("[range] node created");
-    let pub_range = defmt::unwrap!(
-        node.create_publisher::<ros_msgs::sensor_msgs::Range>("/angel_nose/range")
-            .await
-    );
-    info!("[range] publisher ready");
-
-    loop {
-        if let Some(d) = hcsr04_measure(&mut trig, &mut echo).await {
-            let m = ros_msgs::sensor_msgs::Range {
-                radiation_type: ros_msgs::sensor_msgs::RANGE_ULTRASOUND,
-                field_of_view: 0.2618,
-                min_range: 0.02,
-                max_range: 4.0,
-                range: d,
-                variance: 0.0,
-                ..Default::default()
-            };
-            pub_range.publish(&m).await.ok();
-        }
-        Timer::after(Duration::from_millis(SAMPLE_PERIOD_MS)).await;
-    }
-}
-
-#[embassy_executor::task]
 async fn imu_node(ctx: Context, mut imu_dev: MyI2cDev) -> ! {
     info!("[imu] task start");
     let node = defmt::unwrap!(ctx.create_node("imu").await);
     info!("[imu] node created");
     let pub_imu = defmt::unwrap!(
-        node.create_publisher::<ros_msgs::sensor_msgs::Imu>("/angel_nose/imu")
+        node.create_publisher::<ros_msgs::sensor_msgs::Imu>("/imu/data")
             .await
     );
     info!("[imu] publisher ready");
 
     loop {
-        if let Ok((ax, ay, az, gx, gy, gz)) = icm20602_read(&mut imu_dev) {
+        if let Ok(reading) = icm20602::read(&mut imu_dev) {
+            let [ax, ay, az] = reading.acceleration;
+            let [gx, gy, gz] = reading.angular_velocity;
             let mut ori_cov = [0.0f64; 9];
             ori_cov[0] = -1.0; // orientation not estimated
             let m = ros_msgs::sensor_msgs::Imu {
@@ -431,9 +290,13 @@ async fn imu_node(ctx: Context, mut imu_dev: MyI2cDev) -> ! {
                 linear_acceleration_covariance: [0.0; 9],
                 ..Default::default()
             };
+            let (sec, nanosec) = agent_timestamp();
+            let mut m = m;
+            m.header.stamp.sec = sec;
+            m.header.stamp.nanosec = nanosec;
             pub_imu.publish(&m).await.ok();
         }
-        Timer::after(Duration::from_millis(SAMPLE_PERIOD_MS)).await;
+        Timer::after(Duration::from_millis(IMU_PERIOD_MS)).await;
     }
 }
 
@@ -447,11 +310,8 @@ async fn motor_node(ctx: Context, mut motors: Drv8835<'static>) -> ! {
     info!("[motor] task start");
     let node = defmt::unwrap!(ctx.create_node("motor").await);
     info!("[motor] node created");
-    defmt::unwrap!(
-        node.create_subscription("/angel_nose/cmd_vel", &SUB_CMDVEL)
-            .await
-    );
-    info!("[motor] subscribed /angel_nose/cmd_vel");
+    defmt::unwrap!(node.create_subscription("/cmd_vel", &SUB_CMDVEL).await);
+    info!("[motor] subscribed /cmd_vel");
 
     let cfg = DiffDriveConfig::new(WHEEL_SEPARATION_M, MAX_WHEEL_SPEED_MPS);
     let mut stopped = true;
@@ -518,7 +378,7 @@ async fn odom_node(ctx: Context) -> ! {
     info!("[odom] starting create after delay");
     let node = defmt::unwrap!(ctx.create_node("odom").await);
     info!("[odom] node created");
-    let pub_odom = defmt::unwrap!(node.create_publisher::<Odometry>("/angel_nose/odom").await);
+    let pub_odom = defmt::unwrap!(node.create_publisher::<Odometry>("/odom").await);
     info!("[odom] /odom publisher ready");
     let pub_tf = defmt::unwrap!(node.create_publisher::<TFMessage>("/tf").await);
     info!("[odom] /tf publisher ready — ALL ODOM READY");
@@ -537,11 +397,8 @@ async fn odom_node(ctx: Context) -> ! {
     let _ = tf_stamped.child_frame_id.push_str("base_link");
     tf_stamped.transform.rotation.w = 1.0;
 
-    let mut x = 0.0f32;
-    let mut y = 0.0f32;
-    let mut yaw = 0.0f32;
+    let mut odometry = OpenLoopOdometry::new();
 
-    let start = Instant::now();
     let mut last_tick = Instant::now();
     let mut iter: u32 = 0;
     loop {
@@ -551,22 +408,18 @@ async fn odom_node(ctx: Context) -> ! {
         last_tick = now;
 
         let (lin, ang) = read_motion_state_with_timeout(now);
-        x += lin * dt * cos_approx(yaw);
-        y += lin * dt * sin_approx(yaw);
-        yaw += ang * dt;
+        let pose = odometry.update(lin, ang, dt);
 
-        let half = 0.5 * yaw;
-        let qz = sin_approx(half);
-        let qw = cos_approx(half);
+        let half = 0.5 * pose.yaw;
+        let qz = libm::sinf(half);
+        let qw = libm::cosf(half);
 
-        let elapsed = (Instant::now() - start).as_micros();
-        let sec = (elapsed / 1_000_000) as i32;
-        let nanosec = ((elapsed % 1_000_000) * 1_000) as u32;
+        let (sec, nanosec) = agent_timestamp();
 
         odom.header.stamp.sec = sec;
         odom.header.stamp.nanosec = nanosec;
-        odom.pose.pose.position.x = x as f64;
-        odom.pose.pose.position.y = y as f64;
+        odom.pose.pose.position.x = pose.x as f64;
+        odom.pose.pose.position.y = pose.y as f64;
         odom.pose.pose.position.z = 0.0;
         odom.pose.pose.orientation.x = 0.0;
         odom.pose.pose.orientation.y = 0.0;
@@ -593,8 +446,8 @@ async fn odom_node(ctx: Context) -> ! {
 
         tf_stamped.header.stamp.sec = sec;
         tf_stamped.header.stamp.nanosec = nanosec;
-        tf_stamped.transform.translation.x = x as f64;
-        tf_stamped.transform.translation.y = y as f64;
+        tf_stamped.transform.translation.x = pose.x as f64;
+        tf_stamped.transform.translation.y = pose.y as f64;
         tf_stamped.transform.translation.z = 0.0;
         tf_stamped.transform.rotation.x = 0.0;
         tf_stamped.transform.rotation.y = 0.0;
@@ -606,6 +459,48 @@ async fn odom_node(ctx: Context) -> ! {
 
         Timer::after(Duration::from_millis(ODOM_PUBLISH_PERIOD_MS)).await;
     }
+}
+
+#[embassy_executor::task]
+async fn time_sync_node(ctx: Context) -> ! {
+    loop {
+        let local_send_ns = Instant::now().as_micros() as i64 * 1_000;
+        match with_timeout(Duration::from_secs(2), ctx.synchronize_time(local_send_ns)).await {
+            Ok(Ok(reply)) => {
+                let local_receive_ns = Instant::now().as_micros() as i64 * 1_000;
+                let offset = timestamp_offset_ns(local_send_ns, local_receive_ns, reply);
+                AGENT_TIME_OFFSET_NS.store(offset, Ordering::Release);
+                AGENT_TIME_VALID.store(true, Ordering::Release);
+                info!("[microros] Agent clock synchronized offset_ns={}", offset);
+            }
+            _ => {
+                AGENT_TIME_VALID.store(false, Ordering::Release);
+                warn!("[microros] Agent clock synchronization failed");
+            }
+        }
+        Timer::after(Duration::from_secs(10)).await;
+    }
+}
+
+fn timestamp_offset_ns(local_send_ns: i64, local_receive_ns: i64, reply: TimestampReply) -> i64 {
+    let agent_receive_ns =
+        reply.receive.seconds as i64 * 1_000_000_000 + reply.receive.nanoseconds as i64;
+    let agent_transmit_ns =
+        reply.transmit.seconds as i64 * 1_000_000_000 + reply.transmit.nanoseconds as i64;
+    ((agent_receive_ns - local_send_ns) + (agent_transmit_ns - local_receive_ns)) / 2
+}
+
+fn agent_timestamp() -> (i32, u32) {
+    let local_ns = Instant::now().as_micros() as i64 * 1_000;
+    let corrected_ns = if AGENT_TIME_VALID.load(Ordering::Acquire) {
+        local_ns.saturating_add(AGENT_TIME_OFFSET_NS.load(Ordering::Acquire))
+    } else {
+        local_ns
+    };
+    (
+        corrected_ns.div_euclid(1_000_000_000) as i32,
+        corrected_ns.rem_euclid(1_000_000_000) as u32,
+    )
 }
 
 fn publish_motion_state(linear: f32, angular: f32) {
@@ -623,73 +518,4 @@ fn read_motion_state_with_timeout(now: Instant) -> (f32, f32) {
         f32::from_bits(MOTION_LINEAR_BITS.load(Ordering::Relaxed)),
         f32::from_bits(MOTION_ANGULAR_BITS.load(Ordering::Relaxed)),
     )
-}
-
-fn wrap_pi(mut x: f32) -> f32 {
-    const PI: f32 = core::f32::consts::PI;
-    const TAU: f32 = 2.0 * core::f32::consts::PI;
-    while x > PI {
-        x -= TAU;
-    }
-    while x < -PI {
-        x += TAU;
-    }
-    x
-}
-
-fn sin_approx(x: f32) -> f32 {
-    // 5th-order polynomial around 0 after wrapping to [-pi, pi].
-    let x = wrap_pi(x);
-    let x2 = x * x;
-    x * (1.0 - x2 / 6.0 + (x2 * x2) / 120.0)
-}
-
-fn cos_approx(x: f32) -> f32 {
-    let x = wrap_pi(x);
-    let x2 = x * x;
-    1.0 - x2 / 2.0 + (x2 * x2) / 24.0
-}
-
-async fn hcsr04_measure(trig: &mut Output<'_>, echo: &mut Input<'_>) -> Option<f32> {
-    trig.set_high();
-    Timer::after(Duration::from_micros(10)).await;
-    trig.set_low();
-    if with_timeout(Duration::from_millis(30), echo.wait_for_high())
-        .await
-        .is_err()
-    {
-        return None;
-    }
-    let t1 = Instant::now();
-    if with_timeout(Duration::from_millis(40), echo.wait_for_low())
-        .await
-        .is_err()
-    {
-        return None;
-    }
-    Some((Instant::now() - t1).as_micros() as f32 / 5800.0)
-}
-
-async fn icm20602_init(i2c: &mut impl I2cTrait) -> Result<(), ()> {
-    let mut id = [0u8; 1];
-    i2c.write_read(0x68, &[0x75], &mut id).map_err(|_| ())?;
-    info!("[imu] WHO_AM_I=0x{:02X}", id[0]);
-    i2c.write(0x68, &[0x6B, 0x01]).map_err(|_| ())?;
-    Timer::after(Duration::from_millis(100)).await;
-    Ok(())
-}
-
-fn icm20602_read(i2c: &mut impl I2cTrait) -> Result<(f64, f64, f64, f64, f64, f64), ()> {
-    let mut buf = [0u8; 14];
-    i2c.write_read(0x68, &[0x3B], &mut buf).map_err(|_| ())?;
-    const A_SCALE: f64 = 2.0 * 9.80665 / 32768.0;
-    const G_SCALE: f64 = 250.0 * core::f64::consts::PI / 180.0 / 32768.0;
-    Ok((
-        i16::from_be_bytes([buf[0], buf[1]]) as f64 * A_SCALE,
-        i16::from_be_bytes([buf[2], buf[3]]) as f64 * A_SCALE,
-        i16::from_be_bytes([buf[4], buf[5]]) as f64 * A_SCALE,
-        i16::from_be_bytes([buf[8], buf[9]]) as f64 * G_SCALE,
-        i16::from_be_bytes([buf[10], buf[11]]) as f64 * G_SCALE,
-        i16::from_be_bytes([buf[12], buf[13]]) as f64 * G_SCALE,
-    ))
 }

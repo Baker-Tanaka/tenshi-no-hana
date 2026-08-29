@@ -2,7 +2,7 @@
 
 > ⚠️ This project is under active development. Features, wiring, and documentation may change.
 
-**A whiskey barrel patrol rover that detects alcohol vapor, environmental conditions, and barrel liquid level.**
+**A 2WD rover remotely controlled from ROS 2/Nav2.**
 
 ## Illustrative Image
 
@@ -13,47 +13,65 @@
 > 日本語版はこちら: [README.ja.md](./README.ja.md)
 
 ## Overview
-Angel's Nose is a compact 2-wheel rover based on the Baker link. Dev(RP2040) board. It patrols distilleries and barrel aging warehouses, detects ethanol vapor, measures temperature, humidity, and pressure, and estimates barrel liquid surface using magnetic sensing.
+Angel's Nose is a compact 2-wheel rover based on the Baker link. Dev Rev.1 (RP2040) board. It patrols distilleries and barrel aging warehouses, detects ethanol vapor, and estimates barrel liquid surface using magnetic sensing.
 
 This project combines:
-- **Baker link. Dev (RP2040)**
+- **micro_xrce_dds_rs** with a **micro-ROS Agent** bridge
 - **XIAO-ESP32-C3 as a Wi-Fi ESP-hosted MCU**
 - **Embassy-rs no_std async runtime**
 - **micro_xrce_dds_rs** with a **micro-ROS Agent** bridge
 
 ## Key features
 - Ethanol vapor detection as a proxy for the barrel's "angel's share"
-- Environmental sensing with temperature, humidity, and pressure
 - Non-contact barrel liquid level sensing using a floating magnet and magnetic field sensor
+- 6-axis IMU (ICM-20602) for odometry and attitude estimation
 - Wi-Fi communication via XIAO-ESP32-C3
 - Low-cost and lightweight no_std embedded design
 
 ## Hardware bill of materials
 Estimated Japan-focused pricing as of April 2026.
 
-| Part               | Example                                              | Approx. Price | Link                                                            | Notes                                                         |
-| ------------------ | ---------------------------------------------------- | ------------- | --------------------------------------------------------------- | ------------------------------------------------------------- |
-| 2WD robot chassis  | FT-DC-002 / 2WD Mini Smart Robot Mobile Platform Kit | ¥1,900        | [Akizuki](https://akizukidenshi.com/catalog/g/g113651/)         | Includes motors; encoder-free version available               |
-| Baker link. Dev    | -                                                    | ¥1,980        | [Switch Science](https://www.switch-science.com/products/10044) | Native Embassy-rs / Rust no_std support                       |
-| Motor driver       | DRV8835 dual motor driver                            | ¥400–1,395    | [Akizuki](https://akizukidenshi.com/catalog/g/g109848/)         | Ideal for direct PWM motor control                            |
-| Ethanol sensor     | MQ-3B or MQ-3 module                                 | ¥450          | [Akizuki](https://akizukidenshi.com/catalog/g/g116269/)         | Main sensor for vapor detection; heater requires 5 V / 150 mA |
-| Voltage divider    | 10 kΩ + 15 kΩ resistors                              | < ¥10         | —                                                               | Required: scales MQ-3B AOUT (0–5 V) to 0–3 V for RP2040 ADC   |
-| Environment sensor | BME280 module (AE-BME280)                            | ¥1,650        | [Switch Science](https://www.switch-science.com/products/2236)  | Required for evaporation compensation                         |
-| Optional IMU       | 6-axis IMU module                                    | ¥990          | [Switch Science](https://www.switch-science.com/products/8695)  | Useful for odometry and attitude estimation                   |
-| Ultrasonic sensor  | -                                                    | ¥300          | [Switch Science](https://www.switch-science.com/products/8224/) | For obstacle avoidance                                        |
-
-```
-GPIOs: CLK:6 MOSI:7 MISO:5 CS:10 HS:3 DR:4
-```
+| Part              | Example                                           | Approx. Price | Link                                                            | Notes                                                         |
+| ----------------- | ------------------------------------------------- | ------------- | --------------------------------------------------------------- | ------------------------------------------------------------- |
+| 2WD robot chassis | 2WD Mini Smart Robot Mobile Platform Kit          | ¥1,900        | [Akizuki](https://akizukidenshi.com/catalog/g/g113651/)         | Includes two FA-130 class 3 V gear motors                     |
+| Baker link. Dev   | Rev. 1                                            | ¥1,980        | [Switch Science](https://www.switch-science.com/products/10044) | Main MCU; native Embassy-rs / Rust no_std support             |
+| Motor driver      | AE-DRV8835-S (DRV8835 stepping & DC motor driver) | ¥400          | [Akizuki](https://akizukidenshi.com/catalog/g/g109848/)         | PH/EN mode (MODE pin tied to VCC)                             |
+| IMU               | ICM-20602 Breakout Board                          | ¥990          | [Switch Science](https://www.switch-science.com/products/8695)  | 6-axis (accel + gyro), I2C addr 0x68                          |
+| Ethanol sensor    | MQ-3B or MQ-3 module                              | ¥450          | [Akizuki](https://akizukidenshi.com/catalog/g/g116269/)         | Main sensor for vapor detection; heater requires 5 V / 150 mA |
+| Ultrasonic sensor | HC-SR04                                           | ¥300          | [Switch Science](https://www.switch-science.com/products/8224/) | For obstacle avoidance; 5 V device                            |
+| 3.3 V regulator   | NJU7223F33 (3.3 V / 500 mA LDO)                   | ¥80           | [Akizuki](https://akizukidenshi.com/catalog/g/g100432/)         | 9 V → 3.3 V rail (logic)                                      |
+| 5 V regulator     | BP5293-50 (5 V / 1 A DC-DC)                       | ¥240          | [Akizuki](https://akizukidenshi.com/catalog/g/g111188/)         | 9 V → 5 V rail (motors, MQ-3B heater, HC-SR04)                |
+| Battery           | 9 V (006P) + battery snap                         | ~¥500         | —                                                               | Feeds both regulators; add a power switch                     |
+| Voltage dividers  | 10 kΩ + 15 kΩ resistors ×2                        | < ¥20         | —                                                               | Required: scale MQ-3B AOUT and HC-SR04 Echo (5 V) to 3.0 V    |
 
 ## Wiring
 
-![](docs/schematics/baker_link_esp32c3_spi.svg)
+![](docs/schematics/tenshi_no_hana_wiring.svg)
 
-> **MQ-3B wiring note**: The heater (VCC pin) requires a **5 V / 150 mA** external supply.
-> AOUT can swing up to VCC (~5 V), which would damage the RP2040's 3.3 V ADC input.
-> Add a **10 kΩ + 15 kΩ voltage divider** between AOUT and GP26 as shown in the schematic above.
-> Allow ~2 minutes warm-up after power-on; the firmware suppresses publishing during this period.
+### Power supply
+
+```
+9 V battery (006P)
+  ├── BP5293-50  → 5 V rail   : XIAO 5V pin, MQ-3B VCC (heater), HC-SR04 VCC, DRV8835 VM
+  └── NJU7223F33 → 3.3 V rail : Baker link. Dev 3V3, ICM-20602 VCC, DRV8835 VCC (logic)
+```
+
+> - **Disconnect the battery while USB is connected** for flashing/debugging.
+> - BP5293-50 needs **≥ 8 V input**; watch the 9 V battery level.
+> - NJU7223F33 dissipates (9 V − 3.3 V) × load as heat; keep the 3.3 V load light and provide copper area for cooling.
+
+### Signal-level notes (5 V → 3.3 V)
+
+The RP2040 GPIOs are **not 5 V tolerant**. Two signals need a **10 kΩ + 15 kΩ voltage divider** (5 V → 3.0 V):
+
+- **MQ-3B AOUT → GP26 (ADC0)** — AOUT swings up to ~5 V. Allow ~2 minutes warm-up after power-on; the firmware suppresses publishing during this period.
+- **HC-SR04 Echo → GP3** — Echo outputs 5 V pulses.
+
+### Motor drive
+
+The kit's gear motors are rated **3 V** while DRV8835 VM is fed from the 5 V rail.
+Limit the PWM duty to **~60 %** in firmware to keep the effective motor voltage near 3 V
+(DRV8835 max 1.5 A/ch; place a bulk capacitor near VM).
 
 ## Wireless stack
 - Uses **XIAO-ESP32-C3** with ESP-hosted MCU firmware
@@ -64,15 +82,23 @@ GPIOs: CLK:6 MOSI:7 MISO:5 CS:10 HS:3 DR:4
 - Custom message support for `angel_nose_msgs` (ethanol level, liquid height, environment data)
 
 ## How it works
-1. Position the rover at a fixed distance from the barrel. ArUco or AprilTag tracking is recommended.
-2. Measure barrel liquid level with a floating cork and neodymium magnet using magnetic field sensing.
-3. Use the MQ-3 sensor to "sniff" ambient ethanol vapor.
+## ROS 2 interface
+
+| Direction | Topic       | Type                  | Purpose                                     |
+| --------- | ----------- | --------------------- | ------------------------------------------- |
+| Subscribe | `/cmd_vel`  | `geometry_msgs/Twist` | Remote velocity command                     |
+| Publish   | `/imu/data` | `sensor_msgs/Imu`     | ICM-20602 acceleration and angular velocity |
+| Publish   | `/odom`     | `nav_msgs/Odometry`   | Open-loop pose and realized velocity        |
+| Publish   | `/tf`       | `tf2_msgs/TFMessage`  | `odom` to `base_link` transform             |
+
+The firmware synchronizes message timestamps with the micro-ROS Agent. IMU
+orientation is intentionally unavailable, and odometry is open-loop because
+this chassis has no wheel encoders. Use external localization for accurate
+Nav2 operation.
 
 ## Future work
-- Autonomous mapping and multi-barrel patrol
-- Estimating evaporation volume from liquid level data
-- Web dashboard for distillery monitoring
-- Full Rust no_std implementation across the stack
+- Wheel encoder or external localization integration for higher-accuracy Nav2
+- Autonomous mapping and multi-rover operation
 
 ## ESP32-Hosted (ESP32-C3) pin mapping
 Pin assignments are extracted from `sdkconfig`.

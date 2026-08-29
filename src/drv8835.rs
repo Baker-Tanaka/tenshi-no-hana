@@ -62,8 +62,11 @@ impl<'a> Drv8835<'a> {
     /// Sign chooses direction (positive = forward), magnitude sets PWM duty.
     pub fn set_left(&mut self, speed: f32) {
         let (forward, duty) = split_speed(speed, self.top);
-        self.a_phase
-            .set_level(if forward { embassy_rp::gpio::Level::High } else { embassy_rp::gpio::Level::Low });
+        self.a_phase.set_level(if forward {
+            embassy_rp::gpio::Level::High
+        } else {
+            embassy_rp::gpio::Level::Low
+        });
         self.a_cfg.compare_b = duty;
         self.a_pwm.set_config(&self.a_cfg);
     }
@@ -71,8 +74,11 @@ impl<'a> Drv8835<'a> {
     /// Set right motor speed in the range [-1.0, 1.0].
     pub fn set_right(&mut self, speed: f32) {
         let (forward, duty) = split_speed(speed, self.top);
-        self.b_phase
-            .set_level(if forward { embassy_rp::gpio::Level::High } else { embassy_rp::gpio::Level::Low });
+        self.b_phase.set_level(if forward {
+            embassy_rp::gpio::Level::High
+        } else {
+            embassy_rp::gpio::Level::Low
+        });
         self.b_cfg.compare_b = duty;
         self.b_pwm.set_config(&self.b_cfg);
     }
