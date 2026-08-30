@@ -1,10 +1,14 @@
 use embassy_time::{Duration, Timer};
 use embedded_hal::i2c::I2c;
 
-const ADDRESS: u8 = 0x68;
+const ADDRESSES: [u8; 2] = [0x68, 0x69];
 const WHO_AM_I: u8 = 0x75;
 const EXPECTED_WHO_AM_I: u8 = 0x12;
 const PWR_MGMT_1: u8 = 0x6B;
+const CONFIG: u8 = 0x1A;
+const GYRO_CONFIG: u8 = 0x1B;
+const ACCEL_CONFIG: u8 = 0x1C;
+const ACCEL_CONFIG_2: u8 = 0x1D;
 const ACCEL_XOUT_H: u8 = 0x3B;
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -13,27 +17,44 @@ pub struct Reading {
     pub angular_velocity: [f64; 3],
 }
 
-pub async fn init<I2C>(i2c: &mut I2C) -> Result<(), ()>
+pub async fn init<I2C>(i2c: &mut I2C) -> Result<u8, ()>
 where
     I2C: I2c,
 {
-    let mut id = [0u8; 1];
-    i2c.write_read(ADDRESS, &[WHO_AM_I], &mut id)
-        .map_err(|_| ())?;
-    if id[0] != EXPECTED_WHO_AM_I {
-        return Err(());
+    for address in ADDRESSES {
+        let mut id = [0u8; 1];
+        if i2c.write_read(address, &[WHO_AM_I], &mut id).is_err() || id[0] != EXPECTED_WHO_AM_I {
+            continue;
+        }
+
+        i2c.write(address, &[PWR_MGMT_1, 0x80]).map_err(|_| ())?;
+        Timer::after(Duration::from_millis(100)).await;
+
+        let mut reset_id = [0u8; 1];
+        i2c.write_read(address, &[WHO_AM_I], &mut reset_id)
+            .map_err(|_| ())?;
+        if reset_id[0] != EXPECTED_WHO_AM_I {
+            continue;
+        }
+
+        i2c.write(address, &[PWR_MGMT_1, 0x01]).map_err(|_| ())?;
+        i2c.write(address, &[CONFIG, 0x03]).map_err(|_| ())?;
+        i2c.write(address, &[GYRO_CONFIG, 0x00]).map_err(|_| ())?;
+        i2c.write(address, &[ACCEL_CONFIG, 0x00]).map_err(|_| ())?;
+        i2c.write(address, &[ACCEL_CONFIG_2, 0x03])
+            .map_err(|_| ())?;
+        Timer::after(Duration::from_millis(10)).await;
+        return Ok(address);
     }
-    i2c.write(ADDRESS, &[PWR_MGMT_1, 0x01]).map_err(|_| ())?;
-    Timer::after(Duration::from_millis(100)).await;
-    Ok(())
+    Err(())
 }
 
-pub fn read<I2C>(i2c: &mut I2C) -> Result<Reading, ()>
+pub fn read<I2C>(i2c: &mut I2C, address: u8) -> Result<Reading, ()>
 where
     I2C: I2c,
 {
     let mut raw = [0u8; 14];
-    i2c.write_read(ADDRESS, &[ACCEL_XOUT_H], &mut raw)
+    i2c.write_read(address, &[ACCEL_XOUT_H], &mut raw)
         .map_err(|_| ())?;
 
     const ACCEL_SCALE: f64 = 2.0 * 9.80665 / 32768.0;

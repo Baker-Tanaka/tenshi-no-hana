@@ -3,53 +3,16 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: "ghcr.io/baker-link-lab/bakerlink-env:latest"
+    image: "tenshi-no-hana-dev:latest"
     container_name: "tenshi-no-hana-container"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - "../:/tenshi-no-hana"
     working_dir: /tenshi-no-hana
-    command: /bin/sh
-    tty: true
-    depends_on:
-      micro_ros_agent:
-        condition: service_healthy
-      ros2-node:
-        condition: service_started
-    networks:
-      - microros-net
-
-  # micro-ROS Agent — bridge between embedded XRCE-DDS and ROS2.
-  micro_ros_agent:
-    image: microros/micro-ros-agent:jazzy
-    container_name: micro_ros_agent
+    command: sleep infinity
+    environment:
+      MICROROS_AGENT_AUTOSTART: "1"
+      MICROROS_AGENT_PORT: "8888"
     ports:
       - "8888:8888"
-    command: tcp4 --port 8888 -v 5
-    healthcheck:
-      test: [ "CMD-SHELL", "timeout 2 bash -c '</dev/tcp/localhost/8888' || exit 1" ]
-      interval: 3s
-      timeout: 3s
-      retries: 10
-    networks:
-      - microros-net
-
-  # ROS2 subscriber — listens on /chatter using default ROS2 RMW.
-  ros2-node:
-    build:
-      context: .
-      dockerfile: Dockerfile.ros2
-    container_name: ros2-node
-    depends_on:
-      micro_ros_agent:
-        condition: service_healthy
-    command: >
-      bash -c "
-        source /opt/ros/jazzy/setup.bash &&
-        ros2 run demo_nodes_cpp listener
-      "
-    networks:
-      - microros-net
-
-networks:
-  microros-net:
-    driver: bridge

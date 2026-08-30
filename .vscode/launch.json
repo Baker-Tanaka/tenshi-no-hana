@@ -1,36 +1,31 @@
 {
-    "version": "0.2.0",
-    "configurations": [
+  "configurations": [
+    {
+      "chip": "RP2040",
+      "consoleLogLevel": "Info",
+      "coreConfigs": [
         {
-            "preLaunchTask": "cargo: build",
-            "type": "probe-rs-debug",
-            "request": "launch",
-            "name": "Flash: main (debug)",
-            "server": "172.17.0.1:50001",
-            "probe": "2e8a:106b",
-            "speed": 4000,
-            "chip": "RP2040",
-            "flashingConfig": {
-                "flashingEnabled": true,
-                "haltAfterReset": true,
-            },
-            "coreConfigs": [
-                {
-                    "coreIndex": 0,
-                    "programBinary": "tenshi-no-hana/target/thumbv6m-none-eabi/debug/tenshi-no-hana",
-                    "rttEnabled": true,
-                }
-            ],
-            "pathMappings": [
-                {
-                    "remoteRoot": "tenshi-no-hana",
-                    "localRoot": "${env:LOCAL_WORKSPACE_FOLDER}"
-                }
-            ],
-            "env": {
-                "RUST_LOG": "info"
-            },
-            "consoleLogLevel": "Info"
+          "coreIndex": 0,
+          "programBinary": "bakerlink://tenshi-no-hana/debug",
+          "rttEnabled": true
         }
-    ]
+      ],
+      "env": {
+        "RUST_LOG": "info"
+      },
+      "flashingConfig": {
+        "flashingEnabled": true,
+        "haltAfterReset": true
+      },
+      "name": "probe_rs Server attach example",
+      "preLaunchTask": "baker-link: prepare debug",
+      "remoteServerMode": false,
+      "request": "launch",
+      "server": "${config:bakerLink.dapServer}",
+      "speed": 4000,
+      "probe": "2e8a:106b-2:",
+      "type": "probe-rs-debug"
+    }
+  ],
+  "version": "0.2.0"
 }

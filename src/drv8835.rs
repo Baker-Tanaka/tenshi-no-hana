@@ -83,13 +83,17 @@ impl<'a> Drv8835<'a> {
         self.b_pwm.set_config(&self.b_cfg);
     }
 
-    /// Coast both motors to a stop (PWM duty = 0). PHASE pins are left as-is;
-    /// since ENABLE is 0 the H-bridge outputs are high-Z regardless.
+    /// Stop both motors and drive both control inputs low.
+    ///
+    /// In PH/EN mode this sets ENABLE low. It also remains a valid stop state
+    /// if the hardware MODE pin is low or floating and selects IN/IN mode.
     pub fn stop(&mut self) {
         self.a_cfg.compare_b = 0;
         self.b_cfg.compare_b = 0;
         self.a_pwm.set_config(&self.a_cfg);
         self.b_pwm.set_config(&self.b_cfg);
+        self.a_phase.set_low();
+        self.b_phase.set_low();
     }
 }
 

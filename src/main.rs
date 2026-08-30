@@ -12,6 +12,7 @@
 //
 //   Publications:
 //     /imu/data                 sensor_msgs/Imu    ICM-20602
+//     /ultrasonic/front         sensor_msgs/Range  HC-SR04
 //     /odom                     nav_msgs/Odometry  open-loop dead-reckoning
 //     /tf                       tf2_msgs/TFMessage odom → base_link
 //
@@ -34,6 +35,7 @@
 #![no_main]
 
 mod drv8835;
+mod hcsr04;
 mod icm20602;
 mod ros_msgs;
 mod wifi_config;
@@ -79,6 +81,7 @@ bind_interrupts!(struct Irqs {
 });
 
 const IMU_PERIOD_MS: u64 = 20;
+const RANGE_PERIOD_MS: u64 = 100;
 const CMD_VEL_TIMEOUT_MS: u64 = 500;
 const ODOM_PUBLISH_PERIOD_MS: u64 = 100;
 const MAX_MOTOR_DUTY_SCALE: f32 = 0.6;
@@ -137,6 +140,14 @@ async fn main(spawner: Spawner) {
         embassy_net_esp_hosted_mcu::new(esp_state, spi_iface, reset, None).await;
     spawner.spawn(esp_hosted_task(esp_runner).unwrap());
 
+    let (stack, net_runner) = embassy_net::new(
+        net_device,
+        embassy_net::Config::dhcpv4(DhcpConfig::default()),
+        STACK_RESOURCES.init(StackResources::new()),
+        0x1234_5678_9abc_def0u64,
+    );
+    spawner.spawn(net_task(net_runner).unwrap());
+
     let cfg = AppConfig::new();
     info!("[wifi] connecting to \"{}\"...", cfg.wifi_ssid);
     defmt::unwrap!(
@@ -152,29 +163,41 @@ async fn main(spawner: Spawner) {
             })
             .await
     );
-    let connected = defmt::unwrap!(control.connect(cfg.wifi_ssid, cfg.wifi_password).await);
-    defmt::assert!(connected, "WiFi association failed");
-    info!("[wifi] connected");
+    loop {
+        let connected = defmt::unwrap!(control.connect(cfg.wifi_ssid, cfg.wifi_password).await);
+        if connected {
+            break;
+        }
 
-    let (stack, net_runner) = embassy_net::new(
-        net_device,
-        embassy_net::Config::dhcpv4(DhcpConfig::default()),
-        STACK_RESOURCES.init(StackResources::new()),
-        0x1234_5678_9abc_def0u64,
-    );
+        warn!("WiFi association failed; retrying");
+        Timer::after(Duration::from_secs(5)).await;
+    }
+    info!("[wifi] connected");
 
     // I2C0: ICM-20602 @ 0x68
     let raw_i2c = I2c::new_blocking(p.I2C0, p.PIN_5, p.PIN_4, I2cConfig::default());
     let i2c_bus = I2C_BUS.init(RefCell::new(raw_i2c));
 
-    {
+    let imu_address = {
         let mut imu_tmp = RefCellDevice::new(i2c_bus);
         match icm20602::init(&mut imu_tmp).await {
-            Ok(()) => info!("[imu] ICM-20602 ready"),
-            Err(()) => error!("[imu] ICM-20602 init failed"),
+            Ok(address) => {
+                info!("[imu] ICM-20602 ready at 0x{:02x}", address);
+                Some(address)
+            }
+            Err(()) => {
+                error!("[imu] ICM-20602 not found at 0x68 or 0x69");
+                None
+            }
         }
-    }
+    };
     let imu_dev = RefCellDevice::new(i2c_bus);
+
+    // HC-SR04: GP2 Trigger, GP3 Echo through a 10k/15k voltage divider.
+    let range_sensor = hcsr04::Hcsr04::new(
+        Output::new(p.PIN_2, Level::Low),
+        Input::new(p.PIN_3, Pull::Down),
+    );
 
     // DRV8835 (PH/EN mode, MODE pin tied HIGH externally)
     //   APHASE=GP10  AENABLE=GP11 (PWM5_B)
@@ -188,8 +211,6 @@ async fn main(spawner: Spawner) {
     let b_pwm = Pwm::new_output_b(p.PWM_SLICE4, p.PIN_9, pwm_cfg.clone());
     let motors = Drv8835::new(a_phase, a_pwm, pwm_cfg.clone(), b_phase, b_pwm, pwm_cfg);
     info!("[motor] DRV8835 ready");
-
-    spawner.spawn(net_task(net_runner).unwrap());
 
     // Wait for DHCP.
     while stack.config_v4().is_none() {
@@ -205,14 +226,19 @@ async fn main(spawner: Spawner) {
     let agent_ep = cfg.agent_endpoint();
     let mut socket = TcpSocket::new(stack, tcp_rx, tcp_tx);
     socket.set_timeout(Some(Duration::from_secs(30)));
-    if with_timeout(Duration::from_secs(10), socket.connect(agent_ep))
-        .await
-        .map(|r| r.is_ok())
-        .unwrap_or(false)
-    {
-        info!("[microros] TCP connected");
-    } else {
-        defmt::panic!("[microros] TCP connect timeout");
+    loop {
+        if with_timeout(Duration::from_secs(10), socket.connect(agent_ep))
+            .await
+            .map(|result| result.is_ok())
+            .unwrap_or(false)
+        {
+            info!("[microros] TCP connected");
+            break;
+        }
+
+        warn!("[microros] TCP connect failed; retrying");
+        socket.abort();
+        Timer::after(Duration::from_secs(5)).await;
     }
 
     let (ctx, exec) = defmt::unwrap!(
@@ -223,7 +249,8 @@ async fn main(spawner: Spawner) {
     info!("[microros] runtime started");
 
     spawner.spawn(xrce_exec(exec).unwrap());
-    spawner.spawn(imu_node(ctx, imu_dev).unwrap());
+    spawner.spawn(imu_node(ctx, imu_dev, imu_address).unwrap());
+    spawner.spawn(range_node(ctx, range_sensor).unwrap());
     spawner.spawn(motor_node(ctx, motors).unwrap());
     spawner.spawn(odom_node(ctx).unwrap());
     spawner.spawn(time_sync_node(ctx).unwrap());
@@ -252,7 +279,7 @@ async fn xrce_exec(exec: MyExecutor) -> ! {
 }
 
 #[embassy_executor::task]
-async fn imu_node(ctx: Context, mut imu_dev: MyI2cDev) -> ! {
+async fn imu_node(ctx: Context, mut imu_dev: MyI2cDev, mut imu_address: Option<u8>) -> ! {
     info!("[imu] task start");
     let node = defmt::unwrap!(ctx.create_node("imu").await);
     info!("[imu] node created");
@@ -261,9 +288,31 @@ async fn imu_node(ctx: Context, mut imu_dev: MyI2cDev) -> ! {
             .await
     );
     info!("[imu] publisher ready");
+    let mut read_failures = 0u32;
+    let mut publish_failures = 0u32;
+    let mut published = 0u32;
 
     loop {
-        if let Ok(reading) = icm20602::read(&mut imu_dev) {
+        if imu_address.is_none() {
+            match icm20602::init(&mut imu_dev).await {
+                Ok(address) => {
+                    imu_address = Some(address);
+                    read_failures = 0;
+                    info!("[imu] detected at 0x{:02x}", address);
+                }
+                Err(()) => {
+                    warn!("[imu] detection failed; retrying");
+                    Timer::after(Duration::from_secs(1)).await;
+                    continue;
+                }
+            }
+        }
+
+        if let Ok(reading) = icm20602::read(&mut imu_dev, imu_address.unwrap()) {
+            if read_failures != 0 {
+                info!("[imu] reading recovered");
+                read_failures = 0;
+            }
             let [ax, ay, az] = reading.acceleration;
             let [gx, gy, gz] = reading.angular_velocity;
             let mut ori_cov = [0.0f64; 9];
@@ -294,9 +343,71 @@ async fn imu_node(ctx: Context, mut imu_dev: MyI2cDev) -> ! {
             let mut m = m;
             m.header.stamp.sec = sec;
             m.header.stamp.nanosec = nanosec;
-            pub_imu.publish(&m).await.ok();
+            let _ = m.header.frame_id.push_str("imu_link");
+            match pub_imu.publish(&m).await {
+                Ok(()) => {
+                    published = published.saturating_add(1);
+                    if publish_failures != 0 {
+                        info!("[imu] publishing recovered");
+                        publish_failures = 0;
+                    }
+                    if published == 1 {
+                        info!("[imu] first sample published");
+                    }
+                }
+                Err(error) => {
+                    publish_failures = publish_failures.saturating_add(1);
+                    if publish_failures == 1 || publish_failures % 100 == 0 {
+                        warn!(
+                            "[imu] publish failed: {}, count={}",
+                            error, publish_failures
+                        );
+                    }
+                }
+            }
+        } else {
+            read_failures = read_failures.saturating_add(1);
+            if read_failures == 1 || read_failures % 100 == 0 {
+                warn!("[imu] read failed, count={}", read_failures);
+            }
+            if read_failures >= 25 {
+                imu_address = None;
+                warn!("[imu] sensor lost; restarting detection");
+            }
         }
         Timer::after(Duration::from_millis(IMU_PERIOD_MS)).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn range_node(ctx: Context, mut sensor: hcsr04::Hcsr04<'static>) -> ! {
+    info!("[range] task start");
+    let node = defmt::unwrap!(ctx.create_node("range").await);
+    let publisher = defmt::unwrap!(
+        node.create_publisher::<ros_msgs::sensor_msgs::Range>("/ultrasonic/front")
+            .await
+    );
+    info!("[range] publisher ready");
+
+    let mut message = ros_msgs::sensor_msgs::Range {
+        radiation_type: 0,
+        field_of_view: hcsr04::FIELD_OF_VIEW_RAD,
+        min_range: hcsr04::MIN_RANGE_M,
+        max_range: hcsr04::MAX_RANGE_M,
+        variance: 0.01,
+        ..Default::default()
+    };
+    let _ = message.header.frame_id.push_str("ultrasonic_link");
+
+    loop {
+        message.range = sensor.measure().await.unwrap_or(f32::INFINITY);
+        let (sec, nanosec) = agent_timestamp();
+        message.header.stamp.sec = sec;
+        message.header.stamp.nanosec = nanosec;
+        if publisher.publish(&message).await.is_err() {
+            warn!("[range] publish failed");
+        }
+        Timer::after(Duration::from_millis(RANGE_PERIOD_MS)).await;
     }
 }
 
@@ -323,6 +434,17 @@ async fn motor_node(ctx: Context, mut motors: Drv8835<'static>) -> ! {
             Ok(twist) => {
                 let lx = twist.linear.x as f32;
                 let az = twist.angular.z as f32;
+
+                if lx == 0.0 && az == 0.0 {
+                    motors.stop();
+                    publish_motion_state(0.0, 0.0);
+                    if !stopped {
+                        info!("[/cmd_vel] zero command, stop");
+                    }
+                    stopped = true;
+                    continue;
+                }
+
                 let (l, r) = twist_to_wheels(&cfg, lx, az);
 
                 // Limit duty to protect 3V-rated motors when VM=5V.

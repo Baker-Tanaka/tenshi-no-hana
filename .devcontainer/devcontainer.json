@@ -3,9 +3,8 @@
     "dockerComposeFile": "../.docker/compose.yaml",
     "service": "tenshi-no-hana",
     "workspaceFolder": "/tenshi-no-hana",
-    "remoteEnv": {
-        "LOCAL_WORKSPACE_FOLDER": "${localWorkspaceFolder}"
-    },
+    "remoteUser": "vscode",
+    "updateRemoteUserUID": true,
     "customizations": {
         "vscode": {
             "extensions": [
@@ -15,7 +14,8 @@
                 "fill-labs.dependi",
                 "mhutchie.git-graph",
                 "anthropic.claude-code",
-                "yzhang.markdown-all-in-one"
+                "yzhang.markdown-all-in-one",
+                "Ranch-Hand-Robotics.rde-pack"
             ]
         }
     }

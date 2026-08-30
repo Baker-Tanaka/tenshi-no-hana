@@ -326,11 +326,16 @@ cargo build --no-default-features --features wifi,sensor --example wifi_microros
 
 ### Phase 4: 障害物回避・ナビゲーション
 
-| ステップ | 内容                      | 成果物         |
-| -------- | ------------------------- | -------------- |
-| 4-1      | HC-SR04 超音波測距        | 前方障害物距離 |
-| 4-2      | ICM-20602 (6軸) odom 計算 | 姿勢推定       |
-| 4-3      | 簡易障害物回避ロジック    | 自律走行       |
+| ステップ | 内容                          | 成果物                                    | 状態 |
+| -------- | ----------------------------- | ----------------------------------------- | ---- |
+| 4-1      | HC-SR04 超音波測距            | `/ultrasonic/front` (`sensor_msgs/Range`) | ✅    |
+| 4-2      | open-loop odometry            | `/odom`, `odom` → `base_link`             | ✅    |
+| 4-3      | RViz2・odom 基準 Nav2         | 2WD URDF、rolling costmap、DWB            | ✅    |
+| 4-4      | 2D LiDAR・既知地図による AMCL | `map` → `odom`、全周障害物検出            | ⏳    |
+
+HC-SR04 は前方の近距離障害物専用であり、自己位置推定や SLAM には使用しない。
+車輪エンコーダがないため、odom 基準 Nav2 は短距離・低速試験に限定する。
+既知地図での巡回には 2D LiDAR などの外部測位センサーが必要となる。
 
 ### Phase 5: 統合・自律巡回
 

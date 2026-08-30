@@ -1,9 +1,17 @@
 {
-    "rust-analyzer.cargo.target": "thumbv6m-none-eabi",
-    "rust-analyzer.check.allTargets": false,
-    "rust-analyzer.cargo.features": [
-        "wifi",
-        "sensor",
-    ],
-    "editor.formatOnSave": true
+  "bakerLink.dapServer": "host.docker.internal:50001",
+  "editor.formatOnSave": true,
+  "rust-analyzer.cargo.features": [
+    "wifi",
+    "sensor"
+  ],
+  "rust-analyzer.cargo.target": "thumbv6m-none-eabi",
+  "rust-analyzer.check.allTargets": false,
+  "ROS2.distro": "jazzy",
+  "python.autoComplete.extraPaths": [
+    "/opt/ros/jazzy/lib/python3.12/site-packages"
+  ],
+  "python.analysis.extraPaths": [
+    "/opt/ros/jazzy/lib/python3.12/site-packages"
+  ]
 }

@@ -2,6 +2,21 @@
     "version": "2.0.0",
     "tasks": [
         {
+            "label": "baker-link: upload debug ELF",
+            "type": "shell",
+            "command": ".bakerlink/upload-elf.sh",
+            "dependsOn": "cargo: build",
+            "problemMatcher": []
+        },
+        {
+            "label": "baker-link: prepare debug",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "baker-link: upload debug ELF"
+            ],
+            "problemMatcher": []
+        },
+        {
             "label": "cargo: build",
             "type": "shell",
             "command": "cargo build",
@@ -90,6 +105,26 @@
             "label": "cargo: clean",
             "type": "shell",
             "command": "cargo clean",
+            "problemMatcher": []
+        },
+        {
+            "label": "ros2: build bringup",
+            "type": "shell",
+            "command": "source /opt/ros/jazzy/setup.bash && colcon build --symlink-install",
+            "options": {
+                "cwd": "${workspaceFolder}/ros2_ws"
+            },
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "ros2: test bringup",
+            "type": "shell",
+            "command": "source /opt/ros/jazzy/setup.bash && colcon test --packages-select tenshi_no_hana_bringup && colcon test-result --verbose",
+            "options": {
+                "cwd": "${workspaceFolder}/ros2_ws"
+            },
+            "dependsOn": "ros2: build bringup",
             "problemMatcher": []
         }
     ]

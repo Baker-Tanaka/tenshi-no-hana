@@ -84,17 +84,55 @@ Limit the PWM duty to **~60 %** in firmware to keep the effective motor voltage 
 ## How it works
 ## ROS 2 interface
 
-| Direction | Topic       | Type                  | Purpose                                     |
-| --------- | ----------- | --------------------- | ------------------------------------------- |
-| Subscribe | `/cmd_vel`  | `geometry_msgs/Twist` | Remote velocity command                     |
-| Publish   | `/imu/data` | `sensor_msgs/Imu`     | ICM-20602 acceleration and angular velocity |
-| Publish   | `/odom`     | `nav_msgs/Odometry`   | Open-loop pose and realized velocity        |
-| Publish   | `/tf`       | `tf2_msgs/TFMessage`  | `odom` to `base_link` transform             |
+| Direction | Topic               | Type                  | Purpose                                     |
+| --------- | ------------------- | --------------------- | ------------------------------------------- |
+| Subscribe | `/cmd_vel`          | `geometry_msgs/Twist` | Remote velocity command                     |
+| Publish   | `/imu/data`         | `sensor_msgs/Imu`     | ICM-20602 acceleration and angular velocity |
+| Publish   | `/ultrasonic/front` | `sensor_msgs/Range`   | HC-SR04 front obstacle distance             |
+| Publish   | `/odom`             | `nav_msgs/Odometry`   | Open-loop pose and realized velocity        |
+| Publish   | `/tf`               | `tf2_msgs/TFMessage`  | `odom` to `base_link` transform             |
 
 The firmware synchronizes message timestamps with the micro-ROS Agent. IMU
 orientation is intentionally unavailable, and odometry is open-loop because
 this chassis has no wheel encoders. Use external localization for accurate
 Nav2 operation.
+
+## RViz2 and Nav2
+
+Rebuild the development container after changing `.docker/Dockerfile`, then
+build and source the host package:
+
+```sh
+cd ros2_ws
+colcon build --symlink-install
+source install/setup.bash
+```
+
+Start the default odom-relative mode after the rover and micro-ROS Agent are
+connected:
+
+```sh
+ros2 launch tenshi_no_hana_bringup bringup.launch.py localization_mode:=odom
+```
+
+This mode supports short, low-speed relative goals without a map. In RViz2,
+use **2D Goal Pose** to send a goal. Start with the wheels raised, then test
+goals of 0.25-0.5 m on the floor. Cancelling Nav2 or stopping velocity output
+causes the firmware watchdog to stop the motors within 500 ms.
+
+Known-map navigation requires a 2D LaserScan source and a map:
+
+```sh
+ros2 launch tenshi_no_hana_bringup bringup.launch.py \
+  localization_mode:=amcl map:=/absolute/path/to/map.yaml scan_topic:=/scan
+```
+
+The HC-SR04 only covers a narrow area in front of the rover. It improves
+near-field obstacle detection but cannot replace a lidar for localization,
+SLAM, or full-surround collision avoidance. The current odometry integrates
+commanded motor speed without encoders and accumulates unbounded position
+error. Measure and update the provisional dimensions in
+`urdf/tenshi_no_hana.urdf.xacro` before relying on the costmap footprint.
 
 ## Future work
 - Wheel encoder or external localization integration for higher-accuracy Nav2
