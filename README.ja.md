@@ -107,19 +107,13 @@ source install/setup.bash
 ローバーと micro-ROS Agent の接続後、地図を使わない odom 基準モードを起動します。
 
 ```sh
-ros2 launch tenshi_no_hana_bringup bringup.launch.py localization_mode:=odom
+ros2 launch tenshi_no_hana_bringup bringup.launch.py
 ```
 
 このモードは短距離・低速の相対目標用です。最初は車輪を浮かせて RViz2 の **2D Goal Pose** を試し、床上では 0.25〜0.5 m の目標から確認してください。Nav2 のキャンセルまたは速度出力停止後、ファームウェアの watchdog が 500 ms 以内にモーターを停止します。
 
-既知地図上の走行には、2D LaserScan を出力する LiDAR と map YAML が必要です。
-
-```sh
-ros2 launch tenshi_no_hana_bringup bringup.launch.py \
-  localization_mode:=amcl map:=/absolute/path/to/map.yaml scan_topic:=/scan
-```
-
-HC-SR04 の検出範囲は機体前方の狭い範囲だけです。近距離障害物の検出には使えますが、自己位置推定、SLAM、全周衝突防止で LiDAR を代替できません。また、現在の odometry はエンコーダを持たず指令速度を積分するため、位置誤差が累積します。costmap を実運用する前に `urdf/tenshi_no_hana.urdf.xacro` の仮寸法を実測値へ変更してください。
+HC-SR04 の検出範囲は機体前方の狭い範囲だけです。近距離障害物の検出には使えますが、自己位置推定、SLAM、全周衝突防止で LiDAR を代替できません。また、現在の odometry はエンコーダを持たず指令速度を積分するため、位置誤差が累積します。costmap を実運用する前に[ロボット記述](ros2_ws/src/tenshi_no_hana_bringup/urdf/tenshi_no_hana.urdf.xacro)の仮寸法を実測値へ変更してください。
+[docs/DESIGN.md](docs/DESIGN.md) をハードウェアとシステム設計の正本として参照してください。
 
 ## 今後の拡張
 - 車輪エンコーダまたは外部自己位置推定の追加

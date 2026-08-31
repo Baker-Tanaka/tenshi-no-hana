@@ -112,7 +112,7 @@ Start the default odom-relative mode after the rover and micro-ROS Agent are
 connected:
 
 ```sh
-ros2 launch tenshi_no_hana_bringup bringup.launch.py localization_mode:=odom
+ros2 launch tenshi_no_hana_bringup bringup.launch.py
 ```
 
 This mode supports short, low-speed relative goals without a map. In RViz2,
@@ -120,19 +120,15 @@ use **2D Goal Pose** to send a goal. Start with the wheels raised, then test
 goals of 0.25-0.5 m on the floor. Cancelling Nav2 or stopping velocity output
 causes the firmware watchdog to stop the motors within 500 ms.
 
-Known-map navigation requires a 2D LaserScan source and a map:
-
-```sh
-ros2 launch tenshi_no_hana_bringup bringup.launch.py \
-  localization_mode:=amcl map:=/absolute/path/to/map.yaml scan_topic:=/scan
-```
-
 The HC-SR04 only covers a narrow area in front of the rover. It improves
 near-field obstacle detection but cannot replace a lidar for localization,
 SLAM, or full-surround collision avoidance. The current odometry integrates
 commanded motor speed without encoders and accumulates unbounded position
-error. Measure and update the provisional dimensions in
-`urdf/tenshi_no_hana.urdf.xacro` before relying on the costmap footprint.
+error. Measure and update the provisional dimensions in the
+[robot description](ros2_ws/src/tenshi_no_hana_bringup/urdf/tenshi_no_hana.urdf.xacro)
+before relying on the costmap footprint.
+See [docs/DESIGN.md](docs/DESIGN.md) for the canonical hardware and system
+design.
 
 ## Future work
 - Wheel encoder or external localization integration for higher-accuracy Nav2

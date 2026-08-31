@@ -40,12 +40,8 @@ pub fn twist_to_wheels(cfg: &DiffDriveConfig, linear_x: f32, angular_z: f32) -> 
 fn clamp_unit(x: f32) -> f32 {
     if x.is_nan() {
         0.0
-    } else if x > 1.0 {
-        1.0
-    } else if x < -1.0 {
-        -1.0
     } else {
-        x
+        x.clamp(-1.0, 1.0)
     }
 }
 

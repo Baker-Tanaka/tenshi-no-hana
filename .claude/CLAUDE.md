@@ -110,39 +110,12 @@ v0.9 は `embedded-io-async = "0.7"` を要求するが、`micro_xrce_dds_rs` �
 ### CtrlMsg スタック使用量
 `CtrlMsg` 1 個あたり ~1376 bytes。Cortex-M0+ で同時に 2 個以上スタックに置かない。`decode_from_bytes()` 前に既存フィールドをクリアすること（micropb はマージセマンティクス）。
 
-## Hardware Pin Assignment (RP2040)
+## Hardware Design
 
-### SPI0 → ESP32-C3 (esp-hosted-mcu)
-| RP2040          | Signal     | ESP32-C3 GPIO | XIAO Pin |
-| --------------- | ---------- | ------------- | -------- |
-| GP16 (SPI0 RX)  | MISO       | GPIO5         | D3       |
-| GP17 (GPIO out) | CS         | GPIO10        | D10      |
-| GP18 (SPI0 SCK) | SCK        | GPIO6         | D4       |
-| GP19 (SPI0 TX)  | MOSI       | GPIO7         | D5       |
-| GP15 (GPIO in)  | Handshake  | GPIO3         | D1       |
-| GP13 (GPIO in)  | Data Ready | GPIO4         | D2       |
-| GP14 (GPIO out) | Reset      | GPIO21        | D6       |
-
-### Sensors & Actuators
-| RP2040         | Function            | Device                                 |
-| -------------- | ------------------- | -------------------------------------- |
-| GP4/GP5        | I2C0 SDA/SCL        | ICM-20602 (IMU)                        |
-| GP26           | ADC0                | MQ-3B (エタノール、10k/15k 分圧経由)   |
-| GP10/GP11      | GPIO/PWM (左 PH/EN) | DRV8835 AIN1/AIN2 (AE-DRV8835-S)       |
-| GP12/GP9       | GPIO/PWM (右 PH/EN) | DRV8835 BIN1/BIN2                      |
-| GP2/GP3        | GPIO Trig/Echo      | HC-SR04 (超音波、Echo は 10k/15k 分圧) |
-| GP20/GP21/GP22 | GPIO                | ステータス LED                         |
-
-### Power (9V 電池)
-| レール | レギュレーター          | 供給先                                           |
-| ------ | ----------------------- | ------------------------------------------------ |
-| 5V     | BP5293-50 (5V/1A DC-DC) | XIAO 5V ピン、MQ-3B VCC、HC-SR04 VCC、DRV8835 VM |
-| 3.3V   | NJU7223F33 (3.3V/500mA) | Baker link 3V3、ICM-20602、DRV8835 VCC           |
-
-## Supplementary Instruction Files
-
-- [examples/CLAUDE.md](examples/CLAUDE.md) — esp-hosted-mcu 詳細ノート（WiFi examples / `src/wifi_config.rs` 編集時に自動適用）
-- [.claude/serialization.md](.claude/serialization.md) — `no_std` シリアライゼーション選択ガイド（`@.claude/serialization.md` で参照可能）
+Pin assignments, power rails, level shifting, and the hardware BOM are owned by
+[`docs/DESIGN.md`](../docs/DESIGN.md#4-ハードウェア構成). Keep the SPI Mode 3 and
+Handshake/Data Ready pull-down requirements above synchronized with any wiring
+change.
 
 ## Memory Usage Analysis
 

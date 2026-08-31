@@ -89,7 +89,7 @@ roslibrust_codegen = "0.20"
 defmt-test = "0.4"
 
 [[test]]
-name = "example_test"
+name = "rover_math"
 harness = false
 
 # cargo build/run

@@ -1,7 +1,7 @@
 # micro_xrce_dds_rs ランタイム再設計 — "Embassy task = ROS2 node"
 
 > 作成日: 2026-05-04 / 対象: `external/micro_xrce_dds_rs` v0.1 → v0.2
-> 関連: [xrce_dds_protocol.md](xrce_dds_protocol.md), [serialization.md](serialization.md)
+> 関連: [xrce_dds_protocol.md](xrce_dds_protocol.md)
 
 ---
 

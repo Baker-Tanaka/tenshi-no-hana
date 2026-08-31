@@ -25,22 +25,53 @@ def test_odom_mode_matches_firmware_contract():
     local = params["local_costmap"]["local_costmap"]["ros__parameters"]
     assert local["range_layer"]["topics"] == ["/ultrasonic/front"]
     assert local["range_layer"]["plugin"] == "nav2_costmap_2d::RangeSensorLayer"
-
-
-def test_amcl_mode_uses_map_and_laser_scan():
-    params = load_yaml("nav2_amcl_params.yaml")
-    assert params["amcl"]["ros__parameters"]["global_frame_id"] == "map"
-    assert params["amcl"]["ros__parameters"]["odom_frame_id"] == "odom"
     global_costmap = params["global_costmap"]["global_costmap"]["ros__parameters"]
-    assert "static_layer" in global_costmap["plugins"]
-    assert global_costmap["obstacle_layer"]["scan"]["topic"] == "/scan"
+    assert global_costmap["range_layer"]["topics"] == ["/ultrasonic/front"]
+    assert global_costmap["range_layer"]["plugin"] == "nav2_costmap_2d::RangeSensorLayer"
+
+
+def test_launch_is_odom_only():
+    launch_source = (PACKAGE_ROOT / "launch" / "bringup.launch.py").read_text()
+    assert "nav2_odom_params.yaml" in launch_source
+    assert "navigation_launch.py" in launch_source
+    for stale_name in ("amcl", "localization_mode", "localization_launch.py", "scan_topic"):
+        assert stale_name not in launch_source
+
+
+def test_urdf_links_are_connected_to_base_link():
+    robot = ET.parse(PACKAGE_ROOT / "urdf" / "tenshi_no_hana.urdf.xacro").getroot()
+    links = {
+        link.attrib["name"]
+        for link in robot.findall("link")
+        if "${" not in link.attrib["name"]
+    }
+    children_by_parent = {}
+    for joint in robot.findall("joint"):
+        parent = joint.find("parent").attrib["link"]
+        child = joint.find("child").attrib["link"]
+        children_by_parent.setdefault(parent, set()).add(child)
+
+    xacro_namespace = "{http://www.ros.org/wiki/xacro}"
+    for wheel in robot.findall(f"{xacro_namespace}drive_wheel"):
+        wheel_link = wheel.attrib["name"]
+        links.add(wheel_link)
+        children_by_parent.setdefault("base_link", set()).add(wheel_link)
+
+    reachable = {"base_link"}
+    pending = ["base_link"]
+    while pending:
+        for child in children_by_parent.get(pending.pop(), set()):
+            if child not in reachable:
+                reachable.add(child)
+                pending.append(child)
+
+    assert links == reachable
 
 
 def test_velocity_limits_are_below_firmware_limits():
-    for name in ("nav2_odom_params.yaml", "nav2_amcl_params.yaml"):
-        params = load_yaml(name)
-        planner = params["controller_server"]["ros__parameters"]["FollowPath"]
-        assert planner["max_vel_x"] <= 0.24
-        assert planner["max_vel_theta"] <= 1.0
-        smoother = params["velocity_smoother"]["ros__parameters"]
-        assert smoother["velocity_timeout"] < 0.5
+    params = load_yaml("nav2_odom_params.yaml")
+    planner = params["controller_server"]["ros__parameters"]["FollowPath"]
+    assert planner["max_vel_x"] <= 0.24
+    assert planner["max_vel_theta"] <= 1.0
+    smoother = params["velocity_smoother"]["ros__parameters"]
+    assert smoother["velocity_timeout"] < 0.5

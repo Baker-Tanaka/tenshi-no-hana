@@ -71,7 +71,7 @@ fn parse_u8(s: &str) -> Option<u8> {
     }
     let mut v: u16 = 0;
     for b in s.bytes() {
-        if !(b'0'..=b'9').contains(&b) {
+        if !b.is_ascii_digit() {
             return None;
         }
         v = v * 10 + (b - b'0') as u16;
@@ -88,7 +88,7 @@ fn parse_u16(s: &str) -> Option<u16> {
     }
     let mut v: u32 = 0;
     for b in s.bytes() {
-        if !(b'0'..=b'9').contains(&b) {
+        if !b.is_ascii_digit() {
             return None;
         }
         v = v * 10 + (b - b'0') as u32;

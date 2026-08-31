@@ -86,6 +86,17 @@ const CMD_VEL_TIMEOUT_MS: u64 = 500;
 const ODOM_PUBLISH_PERIOD_MS: u64 = 100;
 const MAX_MOTOR_DUTY_SCALE: f32 = 0.6;
 
+const TOPIC_CMD_VEL: &str = "/cmd_vel";
+const TOPIC_IMU: &str = "/imu/data";
+const TOPIC_ODOM: &str = "/odom";
+const TOPIC_RANGE: &str = "/ultrasonic/front";
+const TOPIC_TF: &str = "/tf";
+
+const FRAME_BASE_LINK: &str = "base_link";
+const FRAME_IMU_LINK: &str = "imu_link";
+const FRAME_ODOM: &str = "odom";
+const FRAME_ULTRASONIC_LINK: &str = "ultrasonic_link";
+
 /// FT-DC-002 chassis: ~130 mm wheel separation, top speed ~0.4 m/s.
 /// Hand-calibrate `MAX_WHEEL_SPEED` once encoders are available.
 const WHEEL_SEPARATION_M: f32 = 0.13;
@@ -284,7 +295,7 @@ async fn imu_node(ctx: Context, mut imu_dev: MyI2cDev, mut imu_address: Option<u
     let node = defmt::unwrap!(ctx.create_node("imu").await);
     info!("[imu] node created");
     let pub_imu = defmt::unwrap!(
-        node.create_publisher::<ros_msgs::sensor_msgs::Imu>("/imu/data")
+        node.create_publisher::<ros_msgs::sensor_msgs::Imu>(TOPIC_IMU)
             .await
     );
     info!("[imu] publisher ready");
@@ -343,7 +354,7 @@ async fn imu_node(ctx: Context, mut imu_dev: MyI2cDev, mut imu_address: Option<u
             let mut m = m;
             m.header.stamp.sec = sec;
             m.header.stamp.nanosec = nanosec;
-            let _ = m.header.frame_id.push_str("imu_link");
+            m.header.frame_id.push_str(FRAME_IMU_LINK).unwrap();
             match pub_imu.publish(&m).await {
                 Ok(()) => {
                     published = published.saturating_add(1);
@@ -357,7 +368,7 @@ async fn imu_node(ctx: Context, mut imu_dev: MyI2cDev, mut imu_address: Option<u
                 }
                 Err(error) => {
                     publish_failures = publish_failures.saturating_add(1);
-                    if publish_failures == 1 || publish_failures % 100 == 0 {
+                    if publish_failures == 1 || publish_failures.is_multiple_of(100) {
                         warn!(
                             "[imu] publish failed: {}, count={}",
                             error, publish_failures
@@ -367,7 +378,7 @@ async fn imu_node(ctx: Context, mut imu_dev: MyI2cDev, mut imu_address: Option<u
             }
         } else {
             read_failures = read_failures.saturating_add(1);
-            if read_failures == 1 || read_failures % 100 == 0 {
+            if read_failures == 1 || read_failures.is_multiple_of(100) {
                 warn!("[imu] read failed, count={}", read_failures);
             }
             if read_failures >= 25 {
@@ -384,7 +395,7 @@ async fn range_node(ctx: Context, mut sensor: hcsr04::Hcsr04<'static>) -> ! {
     info!("[range] task start");
     let node = defmt::unwrap!(ctx.create_node("range").await);
     let publisher = defmt::unwrap!(
-        node.create_publisher::<ros_msgs::sensor_msgs::Range>("/ultrasonic/front")
+        node.create_publisher::<ros_msgs::sensor_msgs::Range>(TOPIC_RANGE)
             .await
     );
     info!("[range] publisher ready");
@@ -397,7 +408,11 @@ async fn range_node(ctx: Context, mut sensor: hcsr04::Hcsr04<'static>) -> ! {
         variance: 0.01,
         ..Default::default()
     };
-    let _ = message.header.frame_id.push_str("ultrasonic_link");
+    message
+        .header
+        .frame_id
+        .push_str(FRAME_ULTRASONIC_LINK)
+        .unwrap();
 
     loop {
         message.range = sensor.measure().await.unwrap_or(f32::INFINITY);
@@ -421,7 +436,7 @@ async fn motor_node(ctx: Context, mut motors: Drv8835<'static>) -> ! {
     info!("[motor] task start");
     let node = defmt::unwrap!(ctx.create_node("motor").await);
     info!("[motor] node created");
-    defmt::unwrap!(node.create_subscription("/cmd_vel", &SUB_CMDVEL).await);
+    defmt::unwrap!(node.create_subscription(TOPIC_CMD_VEL, &SUB_CMDVEL).await);
     info!("[motor] subscribed /cmd_vel");
 
     let cfg = DiffDriveConfig::new(WHEEL_SEPARATION_M, MAX_WHEEL_SPEED_MPS);
@@ -500,23 +515,27 @@ async fn odom_node(ctx: Context) -> ! {
     info!("[odom] starting create after delay");
     let node = defmt::unwrap!(ctx.create_node("odom").await);
     info!("[odom] node created");
-    let pub_odom = defmt::unwrap!(node.create_publisher::<Odometry>("/odom").await);
+    let pub_odom = defmt::unwrap!(node.create_publisher::<Odometry>(TOPIC_ODOM).await);
     info!("[odom] /odom publisher ready");
-    let pub_tf = defmt::unwrap!(node.create_publisher::<TFMessage>("/tf").await);
+    let pub_tf = defmt::unwrap!(node.create_publisher::<TFMessage>(TOPIC_TF).await);
     info!("[odom] /tf publisher ready — ALL ODOM READY");
 
     let mut header = Header::default();
-    let _ = header.frame_id.push_str("odom");
+    header.frame_id.push_str(FRAME_ODOM).unwrap();
 
-    let mut odom = Odometry::default();
-    odom.header = header.clone();
-    let _ = odom.child_frame_id.push_str("base_link");
+    let mut odom = Odometry {
+        header: header.clone(),
+        ..Default::default()
+    };
+    odom.child_frame_id.push_str(FRAME_BASE_LINK).unwrap();
     // Identity orientation (quaternion w=1).
     odom.pose.pose.orientation.w = 1.0;
 
-    let mut tf_stamped = TransformStamped::default();
-    tf_stamped.header = header.clone();
-    let _ = tf_stamped.child_frame_id.push_str("base_link");
+    let mut tf_stamped = TransformStamped {
+        header: header.clone(),
+        ..Default::default()
+    };
+    tf_stamped.child_frame_id.push_str(FRAME_BASE_LINK).unwrap();
     tf_stamped.transform.rotation.w = 1.0;
 
     let mut odometry = OpenLoopOdometry::new();
@@ -559,7 +578,7 @@ async fn odom_node(ctx: Context) -> ! {
 
         match pub_odom.publish(&odom).await {
             Ok(()) => {
-                if iter <= 3 || iter % 10 == 0 {
+                if iter <= 3 || iter.is_multiple_of(10) {
                     info!("[odom] /odom pub ok iter={}", iter);
                 }
             }

@@ -119,8 +119,8 @@ fn generate_ros_msgs() {
         return;
     }
 
-    let (raw_msgs, _services, _actions) = find_and_parse_ros_messages(&[msgs_root])
-        .expect("failed to parse vendored .msg files");
+    let (raw_msgs, _services, _actions) =
+        find_and_parse_ros_messages(&[msgs_root]).expect("failed to parse vendored .msg files");
 
     // Copy out of `roslibrust_codegen`'s private-typed return into local owned
     // structs so we can name them in helpers.
@@ -268,11 +268,7 @@ fn try_field_size(
     })
 }
 
-fn scalar_size(
-    ft: &FieldType,
-    current_pkg: &str,
-    sizes: &HashMap<String, usize>,
-) -> Option<usize> {
+fn scalar_size(ft: &FieldType, current_pkg: &str, sizes: &HashMap<String, usize>) -> Option<usize> {
     if let Some(p) = primitive_max_size(&ft.field_type) {
         return Some(p);
     }
@@ -355,8 +351,8 @@ fn default_expr(ft: &FieldType, current_pkg: &str) -> String {
 fn default_scalar(ft: &FieldType, current_pkg: &str) -> String {
     match ft.field_type.as_str() {
         "bool" => "false".into(),
-        "byte" | "uint8" | "char" | "int8" | "uint16" | "int16" | "uint32" | "int32"
-        | "uint64" | "int64" => "0".into(),
+        "byte" | "uint8" | "char" | "int8" | "uint16" | "int16" | "uint32" | "int32" | "uint64"
+        | "int64" => "0".into(),
         "float32" => "0.0_f32".into(),
         "float64" => "0.0_f64".into(),
         "string" | "wstring" => "heapless::String::new()".into(),
@@ -377,7 +373,9 @@ fn emit_inline_impl(out: &mut String, m: &Msg) {
         emit_serialize_field(out, fi, &m.package, "self.");
     }
     out.push_str("        }\n\n");
-    out.push_str("        pub fn deserialize_inline(r: &mut CdrReader<'_>) -> Result<Self, Error> {\n");
+    out.push_str(
+        "        pub fn deserialize_inline(r: &mut CdrReader<'_>) -> Result<Self, Error> {\n",
+    );
     if m.fields.is_empty() {
         out.push_str("            let _ = r;\n");
     }
@@ -396,7 +394,11 @@ fn emit_message_impl(out: &mut String, m: &Msg, sizes: &HashMap<String, usize>) 
     let size = sizes.get(&fqn).copied().unwrap_or(1024);
     let type_name = format!("{}::msg::dds_::{}_", m.package, m.name);
     writeln!(out, "    impl Message for {} {{", m.name).unwrap();
-    writeln!(out, "        const TYPE_NAME: &'static str = \"{type_name}\";").unwrap();
+    writeln!(
+        out,
+        "        const TYPE_NAME: &'static str = \"{type_name}\";"
+    )
+    .unwrap();
     writeln!(out, "        const MAX_SERIALIZED_SIZE: usize = {size};").unwrap();
     out.push_str("        fn serialize(&self, w: &mut CdrWriter) { self.serialize_inline(w); }\n");
     out.push_str("        fn deserialize(r: &mut CdrReader<'_>) -> Result<Self, Error> { Self::deserialize_inline(r) }\n");
@@ -405,12 +407,7 @@ fn emit_message_impl(out: &mut String, m: &Msg, sizes: &HashMap<String, usize>) 
 
 // ── per-field serialize / deserialize ───────────────────────────────────────
 
-fn emit_serialize_field(
-    out: &mut String,
-    fi: &FieldInfo,
-    current_pkg: &str,
-    prefix: &str,
-) {
+fn emit_serialize_field(out: &mut String, fi: &FieldInfo, current_pkg: &str, prefix: &str) {
     let access = format!("{prefix}{}", fi.field_name);
     match fi.field_type.array_info {
         ArrayType::NotArray => emit_serialize_scalar(out, &fi.field_type, current_pkg, &access),
