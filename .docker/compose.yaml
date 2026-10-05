@@ -4,6 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
     image: "tenshi-no-hana-dev:latest"
+    user: vscode
     container_name: "tenshi-no-hana-container"
     extra_hosts:
       - "host.docker.internal:host-gateway"

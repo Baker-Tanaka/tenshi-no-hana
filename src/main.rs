@@ -260,6 +260,7 @@ async fn main(spawner: Spawner) {
     info!("[microros] runtime started");
 
     spawner.spawn(xrce_exec(exec).unwrap());
+    synchronize_agent_clock(ctx).await;
     spawner.spawn(imu_node(ctx, imu_dev, imu_address).unwrap());
     spawner.spawn(range_node(ctx, range_sensor).unwrap());
     spawner.spawn(motor_node(ctx, motors).unwrap());
@@ -576,13 +577,13 @@ async fn odom_node(ctx: Context) -> ! {
         odom.twist.covariance[0] = 0.09;
         odom.twist.covariance[35] = 0.30;
 
-        match pub_odom.publish(&odom).await {
-            Ok(()) => {
+        match with_timeout(Duration::from_millis(250), pub_odom.publish(&odom)).await {
+            Ok(Ok(())) => {
                 if iter <= 3 || iter.is_multiple_of(10) {
                     info!("[odom] /odom pub ok iter={}", iter);
                 }
             }
-            Err(_) => warn!("[odom] /odom pub FAILED iter={}", iter),
+            _ => warn!("[odom] /odom pub FAILED iter={}", iter),
         }
 
         tf_stamped.header.stamp.sec = sec;
@@ -596,7 +597,13 @@ async fn odom_node(ctx: Context) -> ! {
         tf_stamped.transform.rotation.w = qw as f64;
         let mut tf_msg = TFMessage::default();
         let _ = tf_msg.transforms.push(tf_stamped.clone());
-        pub_tf.publish(&tf_msg).await.ok();
+        if with_timeout(Duration::from_millis(250), pub_tf.publish(&tf_msg))
+            .await
+            .map(|result| result.is_err())
+            .unwrap_or(true)
+        {
+            warn!("[odom] /tf pub FAILED iter={}", iter);
+        }
 
         Timer::after(Duration::from_millis(ODOM_PUBLISH_PERIOD_MS)).await;
     }
@@ -605,21 +612,22 @@ async fn odom_node(ctx: Context) -> ! {
 #[embassy_executor::task]
 async fn time_sync_node(ctx: Context) -> ! {
     loop {
-        let local_send_ns = Instant::now().as_micros() as i64 * 1_000;
-        match with_timeout(Duration::from_secs(2), ctx.synchronize_time(local_send_ns)).await {
-            Ok(Ok(reply)) => {
-                let local_receive_ns = Instant::now().as_micros() as i64 * 1_000;
-                let offset = timestamp_offset_ns(local_send_ns, local_receive_ns, reply);
-                AGENT_TIME_OFFSET_NS.store(offset, Ordering::Release);
-                AGENT_TIME_VALID.store(true, Ordering::Release);
-                info!("[microros] Agent clock synchronized offset_ns={}", offset);
-            }
-            _ => {
-                AGENT_TIME_VALID.store(false, Ordering::Release);
-                warn!("[microros] Agent clock synchronization failed");
-            }
-        }
+        synchronize_agent_clock(ctx).await;
         Timer::after(Duration::from_secs(10)).await;
+    }
+}
+
+async fn synchronize_agent_clock(ctx: Context) {
+    let local_send_ns = Instant::now().as_micros() as i64 * 1_000;
+    match with_timeout(Duration::from_secs(2), ctx.synchronize_time(local_send_ns)).await {
+        Ok(Ok(reply)) => {
+            let local_receive_ns = Instant::now().as_micros() as i64 * 1_000;
+            let offset = timestamp_offset_ns(local_send_ns, local_receive_ns, reply);
+            AGENT_TIME_OFFSET_NS.store(offset, Ordering::Release);
+            AGENT_TIME_VALID.store(true, Ordering::Release);
+            info!("[microros] Agent clock synchronized offset_ns={}", offset);
+        }
+        _ => warn!("[microros] Agent clock synchronization failed"),
     }
 }
 

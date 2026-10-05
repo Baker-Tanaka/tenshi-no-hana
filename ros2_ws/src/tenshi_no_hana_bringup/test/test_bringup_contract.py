@@ -33,8 +33,17 @@ def test_odom_mode_matches_firmware_contract():
 def test_launch_is_odom_only():
     launch_source = (PACKAGE_ROOT / "launch" / "bringup.launch.py").read_text()
     assert "nav2_odom_params.yaml" in launch_source
-    assert "navigation_launch.py" in launch_source
-    for stale_name in ("amcl", "localization_mode", "localization_launch.py", "scan_topic"):
+    assert 'DeclareLaunchArgument("use_rviz", default_value="true")' in launch_source
+    assert 'package="rviz2"' in launch_source
+    assert '("cmd_vel_smoothed", "/cmd_vel")' in launch_source
+    for stale_name in (
+        "amcl",
+        "collision_monitor",
+        "docking_server",
+        "localization_mode",
+        "route_server",
+        "scan_topic",
+    ):
         assert stale_name not in launch_source
 
 

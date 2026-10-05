@@ -17,6 +17,21 @@
             "problemMatcher": []
         },
         {
+            "label": "baker-link: upload release ELF",
+            "type": "shell",
+            "command": ".bakerlink/upload-elf.sh release",
+            "dependsOn": "cargo: build (release)",
+            "problemMatcher": []
+        },
+        {
+            "label": "baker-link: prepare release",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "baker-link: upload release ELF"
+            ],
+            "problemMatcher": []
+        },
+        {
             "label": "cargo: build",
             "type": "shell",
             "command": "cargo build",
