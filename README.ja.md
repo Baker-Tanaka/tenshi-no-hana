@@ -81,6 +81,46 @@ RP2040 の GPIO は **5V 非耐圧**。以下の 2 信号は **10kΩ + 15kΩ の
 - `micro_xrce_dds_rs` と micro-ROS Agent
 - カスタムメッセージ `angel_nose_msgs`（エタノール濃度、液面高さ、環境データ）
 
+## ファームウェア構成
+
+組み込み側では、実行時にノードを探して起動する ROS 2 launch ファイルではなく、
+起動時にタスク構成を固定する `launch` モジュールを使います。
+[`src/main.rs`](src/main.rs) は Embassy のエントリーポイントに限定し、
+RP2040 初期化、ボードリソースの組み立て、[`src/launch.rs`](src/launch.rs) の
+呼び出しだけを担当します。ノードを追加・削除するときは `main.rs` ではなく、
+`launch.rs` の spawn 一覧を変更します。
+
+| モジュール | 責務 |
+| --- | --- |
+| [`board.rs`](src/board.rs) | 配線、割り込み、ハードウェアリソースの生成 |
+| [`drivers/`](src/drivers/) | DRV8835・HC-SR04・ICM-20602 の操作。ROS entity は扱わない |
+| [`network.rs`](src/network.rs) | ESP-hosted・network runner、Wi-Fi/DHCP/TCP 接続、XRCE driver 起動 |
+| [`launch.rs`](src/launch.rs) | アプリのタスク構成と起動順序 |
+| [`nodes/imu/`](src/nodes/imu/) | `/imu/data` |
+| [`nodes/range/`](src/nodes/range/) | `/ultrasonic/front` |
+| [`nodes/motor/`](src/nodes/motor/) | `/cmd_vel`、watchdog、実現速度の共有 |
+| [`nodes/odometry/`](src/nodes/odometry/) | open-loop `/odom` と `/tf` |
+| [`nodes/time_sync/`](src/nodes/time_sync/) | 時刻同期の実行周期。DDS ノードではなく補助タスク |
+
+各ノードの処理、topic、ノード固有設定は専用フォルダにまとめます。
+Embassy の所有権に従って、デバイスは利用するタスクへ一度だけ移譲し、
+DDS 通信が必要なタスクには XRCE `Session` をコピーして渡します。
+IMU タスクは I2C バスを直接所有するため、共有バス用のセルは不要です。
+motor と odometry 間では、速度と更新時刻を一つの短い critical section で
+読み書きし、異なるサンプルの値が混ざらないようにします。
+
+再利用可能な ROS 機構は
+[`micro_xrce_dds_rs`](external/micro_xrce_dds_rs/) に置きます。
+session/entity 管理、型付き通信、dispatch、Agent 同期 `Clock` が対象です。
+ノードは `session.clock().now()` を使い、time-sync タスクは
+`session.sync_clock()` の実行周期だけを決めます。初回同期前は従来どおり
+起動後の単調増加時刻を使用しますが、これは Unix 時刻ではありません。
+接続リトライ方針、センサー設定、モーター制限、ノード構成はアプリ側に残します。
+通信切断はログに出しますが、この構成には自動再接続は実装していません。
+
+この `launch.rs` は組み込みファームウェア内のノード構成を表すもので、
+Nav2 や RViz などホスト側 ROS 2 プロセスを起動する `ros2 launch` とは別です。
+
 ## 設置・運用の流れ
 ## ROS 2 インターフェース
 

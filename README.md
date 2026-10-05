@@ -81,6 +81,47 @@ Limit the PWM duty to **~60 %** in firmware to keep the effective motor voltage 
 - `micro_xrce_dds_rs` with micro-ROS Agent TCP transport
 - Custom message support for `angel_nose_msgs` (ethanol level, liquid height, environment data)
 
+## Firmware architecture
+
+The firmware uses a static launch composition rather than a runtime ROS 2
+launch file. [`src/main.rs`](src/main.rs) is only the Embassy entry point:
+it initializes the RP2040, assembles board resources, and calls
+[`src/launch.rs`](src/launch.rs). To add or remove a node, change the spawn list
+in the launch module, not the entry point.
+
+| Module | Responsibility |
+| --- | --- |
+| [`board.rs`](src/board.rs) | Pin assignments, interrupt bindings, construction of hardware resources |
+| [`drivers/`](src/drivers/) | DRV8835, HC-SR04 and ICM-20602 device I/O; no ROS entities |
+| [`network.rs`](src/network.rs) | ESP-hosted and network runner tasks, Wi-Fi/DHCP/TCP setup and XRCE driver startup |
+| [`launch.rs`](src/launch.rs) | Application task composition and startup order |
+| [`nodes/imu/`](src/nodes/imu/) | `/imu/data` |
+| [`nodes/range/`](src/nodes/range/) | `/ultrasonic/front` |
+| [`nodes/motor/`](src/nodes/motor/) | `/cmd_vel`, watchdog and coherent realized-motion snapshot |
+| [`nodes/odometry/`](src/nodes/odometry/) | Open-loop `/odom` and `/tf` |
+| [`nodes/time_sync/`](src/nodes/time_sync/) | Application-selected clock synchronization schedule; not a DDS node |
+
+Each node keeps its task implementation, topics and node-specific configuration
+in its own folder. The launch composition moves each hardware resource into
+the one task that uses it, while copying the XRCE `Session` to DDS users.
+The IMU task owns its I2C bus directly; it does not need a shared-bus cell.
+Motor and odometry tasks share one short critical-section-protected snapshot,
+so velocity components and their update time cannot come from different samples.
+
+Reusable ROS mechanisms belong to
+[`micro_xrce_dds_rs`](external/micro_xrce_dds_rs/): session/entity management,
+typed messaging, dispatch and the Agent-synchronized `Clock`. Nodes read
+`session.clock().now()`; the time-sync task only selects when to call
+`session.sync_clock()`. Before the first successful synchronization the clock
+uses monotonic time since boot, as before; this is not Unix time.
+Connection retry policy, sensor calibration, motor limits and the node graph
+remain application-specific. A transport failure is logged; this composition
+does not implement automatic reconnection.
+
+This `launch.rs` is the embedded equivalent of choosing a ROS node graph; it
+does not replace the host-side `ros2 launch` files, which configure host ROS 2
+processes such as Nav2 and RViz.
+
 ## How it works
 ## ROS 2 interface
 
