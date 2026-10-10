@@ -1,31 +1,28 @@
 use defmt::{info, warn};
 use embassy_executor::task;
-use embassy_time::{with_timeout, Duration, Instant, Timer};
-use micro_xrce_dds_rs::{Node, Session};
+use embassy_ros::{Context, Error, Publisher, Qos, Topic};
+use embassy_time::{Duration, Instant, Timer};
 use tenshi_no_hana::odometry::OpenLoopOdometry;
 
 use crate::{nodes::motor::state::read_motion_state_with_timeout, ros_msgs};
 
-const TOPIC_ODOMETRY: &str = "/odom";
-const TOPIC_TF: &str = "/tf";
 const FRAME_ODOMETRY: &str = "odom";
 const FRAME_BASE_LINK: &str = "base_link";
 const PUBLISH_PERIOD_MS: u64 = 100;
-const ENTITY_START_DELAY_SECS: u64 = 5;
-const PUBLISH_TIMEOUT_MS: u64 = 250;
+pub(crate) static ODOM: Topic<ros_msgs::nav_msgs::Odometry> =
+    Topic::new("/odom", Qos::sensor_data());
+pub(crate) static TF: Topic<ros_msgs::tf2_msgs::TFMessage> = Topic::new("/tf", Qos::sensor_data());
 
 #[task]
-pub(crate) async fn run(session: Session) -> ! {
+pub(crate) async fn run(
+    context: Context,
+    publisher: Publisher<ros_msgs::nav_msgs::Odometry>,
+    tf_publisher: Publisher<ros_msgs::tf2_msgs::TFMessage>,
+) -> ! {
     use ros_msgs::geometry_msgs::TransformStamped;
     use ros_msgs::nav_msgs::Odometry;
     use ros_msgs::std_msgs::Header;
     use ros_msgs::tf2_msgs::TFMessage;
-
-    info!("[odom] task start");
-    // Let the sensor nodes create their entities before the larger odometry types.
-    Timer::after(Duration::from_secs(ENTITY_START_DELAY_SECS)).await;
-    let node = defmt::unwrap!(session.create_node("odom").await);
-    let (publisher, tf_publisher) = create_publishers(&node).await;
 
     let mut header = Header::default();
     header.frame_id.push_str(FRAME_ODOMETRY).unwrap();
@@ -46,23 +43,19 @@ pub(crate) async fn run(session: Session) -> ! {
     transform.child_frame_id.push_str(FRAME_BASE_LINK).unwrap();
     transform.transform.rotation.w = 1.0;
 
+    info!("[odom] task start");
     let mut estimator = OpenLoopOdometry::new();
     let mut last_tick = Instant::now();
-    let mut iteration = 0u32;
     loop {
-        iteration += 1;
         let now = Instant::now();
         let dt = (now - last_tick).as_micros() as f32 / 1_000_000.0;
         last_tick = now;
-
         let (linear, angular) = read_motion_state_with_timeout(now);
         let pose = estimator.update(linear, angular, dt);
+        let stamp = context.clock().now();
         let half_yaw = 0.5 * pose.yaw;
         let yaw_sin = libm::sinf(half_yaw);
         let yaw_cos = libm::cosf(half_yaw);
-        let stamp = session.clock().now();
-        let (sec, nanosec) = (stamp.seconds, stamp.nanoseconds);
-
         fill_odometry(
             &mut odometry_message,
             pose,
@@ -70,57 +63,40 @@ pub(crate) async fn run(session: Session) -> ! {
             angular,
             yaw_sin,
             yaw_cos,
-            sec,
-            nanosec,
         );
-        if with_timeout(
-            Duration::from_millis(PUBLISH_TIMEOUT_MS),
-            publisher.publish(&odometry_message),
-        )
-        .await
-        .map(|result| result.is_err())
-        .unwrap_or(true)
-        {
-            warn!("[odom] /odom publish failed iter={}", iteration);
-        } else if iteration <= 3 || iteration.is_multiple_of(10) {
-            info!("[odom] /odom published iter={}", iteration);
+        fill_transform(&mut transform, pose, yaw_sin, yaw_cos);
+
+        odometry_message.header.set_stamp(stamp);
+        transform.header.set_stamp(stamp);
+
+        if let Err(error) = publisher.publish(&odometry_message) {
+            warn!("[odom] /odom publish failed: {}", error);
         }
 
-        fill_transform(&mut transform, pose, yaw_sin, yaw_cos, sec, nanosec);
         let mut tf_message = TFMessage::default();
         if tf_message.transforms.push(transform.clone()).is_err() {
             warn!("[odom] /tf message capacity exceeded");
-        } else if with_timeout(
-            Duration::from_millis(PUBLISH_TIMEOUT_MS),
-            tf_publisher.publish(&tf_message),
-        )
-        .await
-        .map(|result| result.is_err())
-        .unwrap_or(true)
-        {
-            warn!("[odom] /tf publish failed iter={}", iteration);
+        } else if let Err(error) = tf_publisher.publish(&tf_message) {
+            warn!("[odom] /tf publish failed: {}", error);
         }
-
         Timer::after(Duration::from_millis(PUBLISH_PERIOD_MS)).await;
     }
 }
 
-async fn create_publishers(
-    node: &Node,
-) -> (
-    micro_xrce_dds_rs::Publisher<ros_msgs::nav_msgs::Odometry>,
-    micro_xrce_dds_rs::Publisher<ros_msgs::tf2_msgs::TFMessage>,
-) {
-    let odometry = defmt::unwrap!(
-        node.create_publisher::<ros_msgs::nav_msgs::Odometry>(TOPIC_ODOMETRY)
-            .await
-    );
-    let tf = defmt::unwrap!(
-        node.create_publisher::<ros_msgs::tf2_msgs::TFMessage>(TOPIC_TF)
-            .await
-    );
+pub(crate) fn prepare(
+    context: Context,
+) -> Result<
+    (
+        Publisher<ros_msgs::nav_msgs::Odometry>,
+        Publisher<ros_msgs::tf2_msgs::TFMessage>,
+    ),
+    Error,
+> {
+    let node = context.create_node("odom")?;
+    let odometry = node.create_publisher(&ODOM)?;
+    let tf = node.create_publisher(&TF)?;
     info!("[odom] /odom and /tf publishers ready");
-    (odometry, tf)
+    Ok((odometry, tf))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -131,11 +107,7 @@ fn fill_odometry(
     angular: f32,
     yaw_sin: f32,
     yaw_cos: f32,
-    sec: i32,
-    nanosec: u32,
 ) {
-    message.header.stamp.sec = sec;
-    message.header.stamp.nanosec = nanosec;
     message.pose.pose.position.x = pose.x as f64;
     message.pose.pose.position.y = pose.y as f64;
     message.pose.pose.position.z = 0.0;
@@ -157,11 +129,7 @@ fn fill_transform(
     pose: tenshi_no_hana::odometry::Pose2d,
     yaw_sin: f32,
     yaw_cos: f32,
-    sec: i32,
-    nanosec: u32,
 ) {
-    transform.header.stamp.sec = sec;
-    transform.header.stamp.nanosec = nanosec;
     transform.transform.translation.x = pose.x as f64;
     transform.transform.translation.y = pose.y as f64;
     transform.transform.translation.z = 0.0;

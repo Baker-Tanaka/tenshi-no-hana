@@ -99,24 +99,56 @@ in the launch module, not the entry point.
 | [`nodes/range/`](src/nodes/range/) | `/ultrasonic/front` |
 | [`nodes/motor/`](src/nodes/motor/) | `/cmd_vel`, watchdog and coherent realized-motion snapshot |
 | [`nodes/odometry/`](src/nodes/odometry/) | Open-loop `/odom` and `/tf` |
-| [`nodes/time_sync/`](src/nodes/time_sync/) | Application-selected clock synchronization schedule; not a DDS node |
 
 Each node keeps its task implementation, topics and node-specific configuration
 in its own folder. The launch composition moves each hardware resource into
-the one task that uses it, while copying the XRCE `Session` to DDS users.
+the one task that uses it, while passing an `embassy_ros::Context` and typed
+endpoints to nodes. No node selects a local versus network publisher.
 The IMU task owns its I2C bus directly; it does not need a shared-bus cell.
 Motor and odometry tasks share one short critical-section-protected snapshot,
 so velocity components and their update time cannot come from different samples.
 
-Reusable ROS mechanisms belong to
-[`micro_xrce_dds_rs`](external/micro_xrce_dds_rs/): session/entity management,
-typed messaging, dispatch and the Agent-synchronized `Clock`. Nodes read
-`session.clock().now()`; the time-sync task only selects when to call
-`session.sync_clock()`. Before the first successful synchronization the clock
+Sensing, motor control and odometry start before Wi-Fi/Agent connection.
+The motor watches the framework's versioned connection status, stops on
+connection loss, and rejects stale/expired commands. Its 500 ms watchdog uses
+the command's original device-admission time, not the later dequeue time.
+Remote `/cmd_vel` operation
+still requires Wi-Fi and a micro-ROS Agent; offline mode continues local
+sampling and state estimation, not autonomous driving.
+
+The public framework is
+[`embassy-ros`](external/micro_xrce_dds_rs/embassy_ros/README.md):
+`embassy_ros::init()` -> `Context` -> `Node` -> typed `Topic` endpoints.
+Static storage makes capacities explicit without exposing Embassy channels.
+[`micro_xrce_dds_rs`](external/micro_xrce_dds_rs/) remains its low-level backend.
+The framework owns entity creation, routing and clock synchronization.
+Nodes read `context.clock().now()` at sampling time. Before the first
+successful synchronization the clock
 uses monotonic time since boot, as before; this is not Unix time.
 Connection retry policy, sensor calibration, motor limits and the node graph
 remain application-specific. A transport failure is logged; this composition
 does not implement automatic reconnection.
+
+The optional `embassy_ros::transport::embassy_net::Agent` adapter owns the TCP
+connection/handshake attempt. The application supplies the endpoint, static
+`TcpBuffers` and retry policy; a failed attempt returns the socket for reuse.
+Both connection and handshake failures are logged and retried during startup.
+Board-specific Wi-Fi setup remains in `network.rs`.
+
+ROS `.msg` generation is provided by the host-only companion
+[`micro-xrce-dds-codegen`](external/micro_xrce_dds_rs/codegen/README.md).
+The application build script retains Wi-Fi configuration and selects message
+inputs and fixed capacities. Generated Header types offer `set_stamp`, and
+the low-level backend retains queue-admission deadlines. Framework publishing
+is nonblocking keep-last acceptance, not delivery ACKs or reliable event delivery.
+
+`launch.rs` initializes the framework once and prepares all endpoints without
+network I/O. It selects ROS directions with `context.export` / `context.import`,
+then spawns sensor, motor, odometry and network tasks. The framework connection
+task bridges the existing ROS interfaces without node-specific bridge loops.
+Network startup may continue
+retrying indefinitely without blocking local control. Existing ROS topic names
+and motor limits are unchanged.
 
 This `launch.rs` is the embedded equivalent of choosing a ROS node graph; it
 does not replace the host-side `ros2 launch` files, which configure host ROS 2

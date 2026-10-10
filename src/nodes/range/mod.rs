@@ -1,22 +1,30 @@
 use defmt::{info, warn};
 use embassy_executor::task;
+use embassy_ros::{Context, Error, Publisher, Qos, Topic};
 use embassy_time::{Duration, Timer};
-use micro_xrce_dds_rs::{Node, Session};
-
-use crate::ros_msgs;
 use tenshi_no_hana::drivers::hcsr04;
 
-const TOPIC: &str = "/ultrasonic/front";
+use crate::ros_msgs;
+
 const FRAME_ID: &str = "ultrasonic_link";
 const PERIOD_MS: u64 = 100;
 
+pub(crate) static FRONT: Topic<ros_msgs::sensor_msgs::Range, 2> =
+    Topic::new("/ultrasonic/front", Qos::sensor_data());
+
 pub(crate) type Sensor = hcsr04::Hcsr04<'static>;
 
+pub(crate) fn prepare(context: Context) -> Result<Publisher<ros_msgs::sensor_msgs::Range>, Error> {
+    context.create_node("range")?.create_publisher(&FRONT)
+}
+
 #[task]
-pub(crate) async fn run(session: Session, mut sensor: Sensor) -> ! {
+pub(crate) async fn run(
+    context: Context,
+    publisher: Publisher<ros_msgs::sensor_msgs::Range>,
+    mut sensor: Sensor,
+) -> ! {
     info!("[range] task start");
-    let node = defmt::unwrap!(session.create_node("range").await);
-    let publisher = create_publisher(&node).await;
     let mut message = ros_msgs::sensor_msgs::Range {
         radiation_type: 0,
         field_of_view: hcsr04::FIELD_OF_VIEW_RAD,
@@ -29,23 +37,10 @@ pub(crate) async fn run(session: Session, mut sensor: Sensor) -> ! {
 
     loop {
         message.range = sensor.measure().await.unwrap_or(f32::INFINITY);
-        let stamp = session.clock().now();
-        message.header.stamp.sec = stamp.seconds;
-        message.header.stamp.nanosec = stamp.nanoseconds;
-        if let Err(error) = publisher.publish(&message).await {
+        message.header.set_stamp(context.clock().now());
+        if let Err(error) = publisher.publish(&message) {
             warn!("[range] publish failed: {}", error);
         }
         Timer::after(Duration::from_millis(PERIOD_MS)).await;
     }
-}
-
-async fn create_publisher(
-    node: &Node,
-) -> micro_xrce_dds_rs::Publisher<ros_msgs::sensor_msgs::Range> {
-    let publisher = defmt::unwrap!(
-        node.create_publisher::<ros_msgs::sensor_msgs::Range>(TOPIC)
-            .await
-    );
-    info!("[range] publisher ready");
-    publisher
 }

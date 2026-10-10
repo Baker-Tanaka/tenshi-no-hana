@@ -25,6 +25,7 @@ wifi = [
     "dep:heapless",
     "dep:static_cell",
     "dep:micro-xrce-dds-rs",
+    "dep:embassy-ros",
 ]
 
 [dependencies]
@@ -76,10 +77,15 @@ heapless = { version = "0.8", optional = true }
 static_cell = { version = "2", optional = true }
 micro-xrce-dds-rs = { path = "external/micro_xrce_dds_rs", default-features = false, features = [
     "defmt",
+    "embassy-net",
+], optional = true }
+embassy-ros = { path = "external/micro_xrce_dds_rs/embassy_ros", default-features = false, features = [
+    "defmt",
+    "embassy-net",
 ], optional = true }
 
 [build-dependencies]
-roslibrust_codegen = "0.20"
+micro-xrce-dds-codegen = { path = "external/micro_xrce_dds_rs/codegen" }
 
 [dev-dependencies]
 defmt-test = "0.4"

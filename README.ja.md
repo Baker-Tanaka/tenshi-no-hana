@@ -100,23 +100,56 @@ RP2040 初期化、ボードリソースの組み立て、[`src/launch.rs`](src/
 | [`nodes/range/`](src/nodes/range/) | `/ultrasonic/front` |
 | [`nodes/motor/`](src/nodes/motor/) | `/cmd_vel`、watchdog、実現速度の共有 |
 | [`nodes/odometry/`](src/nodes/odometry/) | open-loop `/odom` と `/tf` |
-| [`nodes/time_sync/`](src/nodes/time_sync/) | 時刻同期の実行周期。DDS ノードではなく補助タスク |
 
 各ノードの処理、topic、ノード固有設定は専用フォルダにまとめます。
 Embassy の所有権に従って、デバイスは利用するタスクへ一度だけ移譲し、
-DDS 通信が必要なタスクには XRCE `Session` をコピーして渡します。
+ノードには `embassy_ros::Context` と型付き endpoint を渡します。
+ノード側でローカル用とネットワーク用の Publisher を使い分ける必要はありません。
 IMU タスクは I2C バスを直接所有するため、共有バス用のセルは不要です。
 motor と odometry 間では、速度と更新時刻を一つの短い critical section で
 読み書きし、異なるサンプルの値が混ざらないようにします。
 
-再利用可能な ROS 機構は
-[`micro_xrce_dds_rs`](external/micro_xrce_dds_rs/) に置きます。
-session/entity 管理、型付き通信、dispatch、Agent 同期 `Clock` が対象です。
-ノードは `session.clock().now()` を使い、time-sync タスクは
-`session.sync_clock()` の実行周期だけを決めます。初回同期前は従来どおり
+ローカルのセンサー取得、モーター制御、odometry は Wi-Fi / Agent 接続前に
+起動します。モーターはフレームワークの世代付き接続状態を監視し、
+切断・古い世代の指令・期限切れの指令で停止します。
+500 ms の watchdog は受信キューから取り出した時刻ではなく、
+デバイスが指令を受理した単調増加時刻を基準にします。
+遠隔 `/cmd_vel` 操作には Wi-Fi と
+micro-ROS Agent が必要です。オフライン時もセンサー取得と状態推定は続きますが、
+自律走行機能を追加するものではありません。
+
+公開フレームワークは
+[`embassy-ros`](external/micro_xrce_dds_rs/embassy_ros/README.md) です。
+`embassy_ros::init()` → `Context` → `Node` → 型付き Topic の endpoint という
+インターフェイスにしました。静的ストレージで容量を固定し、Embassy の
+channel 型は通常の利用 API に出しません。
+[`micro_xrce_dds_rs`](external/micro_xrce_dds_rs/) は低レベル backend として維持します。
+entity 準備、routing、時刻同期はフレームワークが担当し、
+ノードは取得時点で `context.clock().now()` を使います。初回同期前は従来どおり
 起動後の単調増加時刻を使用しますが、これは Unix 時刻ではありません。
 接続リトライ方針、センサー設定、モーター制限、ノード構成はアプリ側に残します。
 通信切断はログに出しますが、この構成には自動再接続は実装していません。
+
+共通の TCP 接続・XRCE handshake は、任意機能
+`embassy_ros::transport::embassy_net::Agent` を使います。アプリ側は接続先、静的
+`TcpBuffers`、リトライ方針を指定します。失敗時は socket が返るため再利用でき、
+起動中の接続・handshake 失敗はログを出して再試行します。
+ボード固有の Wi-Fi 初期化は `network.rs` に残します。
+
+ROS `.msg` 生成はホスト専用の
+[`micro-xrce-dds-codegen`](external/micro_xrce_dds_rs/codegen/README.md)
+を build dependency として使います。アプリの build script は Wi-Fi 設定と
+入力メッセージ・固定容量の指定を担当します。生成された Header には
+`set_stamp` を提供します。公開 Publisher は非同期通信を待たない keep-last
+方式で、成功はデバイス内の受理を意味します。Agent 配送 ACK やイベントの
+確実な配送を保証する API ではありません。
+
+`launch.rs` は一度だけ `init()` し、ネットワーク I/O なしで全 endpoint を準備します。
+ROS 方向は `context.export` / `context.import` に集約し、その後センサー、
+モーター、odometry、network タスクを起動します。ノードごとの bridge 処理はなく、
+フレームワークの connection タスクが既存の ROS interface を接続します。
+ネットワーク接続の再試行が続いてもローカル制御は動き続けます。
+既存の ROS topic 名とモーター制限は維持しています。
 
 この `launch.rs` は組み込みファームウェア内のノード構成を表すもので、
 Nav2 や RViz などホスト側 ROS 2 プロセスを起動する `ros2 launch` とは別です。

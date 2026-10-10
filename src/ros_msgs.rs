@@ -1,8 +1,8 @@
 // ros_msgs.rs — auto-generated ROS2 message types from `msgs/`.
 //
-// This file is just a `include!` shim: build.rs parses every `.msg` under
-// `msgs/{package}/msg/*.msg`, walks the AST returned by `roslibrust_codegen`,
-// and emits a no_std module tree under `$OUT_DIR/ros_msgs.rs`. We pull it in
+// This file is just an `include!` shim: build.rs invokes micro-xrce-dds-codegen
+// for `msgs/{package}/msg/*.msg` and emits a no_std module tree under
+// `$OUT_DIR/ros_msgs.rs`. We pull it in
 // here so it can be referenced via `#[path = "../src/ros_msgs.rs"]` from any
 // example.
 //
