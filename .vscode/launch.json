@@ -10,6 +10,11 @@
           "rttEnabled": true
         }
       ],
+      "bakerLink": {
+        "dapServer": "host.docker.internal:50001",
+        "uploadUrl": "http://host.docker.internal:50002",
+        "elf": "${workspaceFolder}/target/thumbv6m-none-eabi/debug/tenshi-no-hana"
+      },
       "env": {
         "RUST_LOG": "info"
       },
@@ -18,13 +23,13 @@
         "haltAfterReset": true
       },
       "name": "probe_rs Server attach example",
-      "preLaunchTask": "baker-link: prepare debug",
+      "preLaunchTask": "cargo: build",
       "probe": "2e8a:106b-2:",
       "remoteServerMode": false,
       "request": "launch",
       "server": "${config:bakerLink.dapServer}",
       "speed": 4000,
-      "type": "probe-rs-debug"
+      "type": "baker-link-debug"
     },
     {
       "chip": "RP2040",

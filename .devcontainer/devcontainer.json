@@ -9,13 +9,13 @@
         "vscode": {
             "extensions": [
                 "rust-lang.rust-analyzer",
-                "probe-rs.probe-rs-debugger",
                 "tamasfe.even-better-toml",
                 "fill-labs.dependi",
                 "mhutchie.git-graph",
                 "anthropic.claude-code",
                 "yzhang.markdown-all-in-one",
-                "Ranch-Hand-Robotics.rde-pack"
+                "Ranch-Hand-Robotics.rde-pack",
+                "baker-link-lab.baker-link-env"
             ]
         }
     }
