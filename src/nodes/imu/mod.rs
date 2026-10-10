@@ -1,5 +1,5 @@
 use defmt::{info, warn};
-use embassy_executor::task;
+use embassy_executor::{task, Spawner};
 use embassy_ros::{Context, Error, Publisher, Qos, Topic};
 use embassy_time::{Duration, Timer};
 
@@ -11,15 +11,18 @@ const PERIOD_MS: u64 = 20;
 const SENSOR_RETRY_SECS: u64 = 1;
 const SENSOR_FAILURE_LIMIT: u32 = 25;
 
-pub(crate) static DATA: Topic<ros_msgs::sensor_msgs::Imu, 2> =
-    Topic::new("/imu/data", Qos::sensor_data());
+static DATA: Topic<ros_msgs::sensor_msgs::Imu, 2> = Topic::new("/imu/data", Qos::sensor_data());
 
-pub(crate) fn prepare(context: Context) -> Result<Publisher<ros_msgs::sensor_msgs::Imu>, Error> {
-    context.create_node("imu")?.create_publisher(&DATA)
+pub(crate) fn start(spawner: Spawner, context: Context, device: Imu) -> Result<(), Error> {
+    let node = context.create_node("imu")?;
+    let publisher = node.create_publisher(&DATA)?;
+    context.export(&DATA)?;
+    spawner.spawn(run(context, publisher, device).unwrap());
+    Ok(())
 }
 
 #[task]
-pub(crate) async fn run(
+async fn run(
     context: Context,
     publisher: Publisher<ros_msgs::sensor_msgs::Imu>,
     mut device: Imu,

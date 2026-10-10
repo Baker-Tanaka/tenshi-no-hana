@@ -1,5 +1,5 @@
 use defmt::{info, warn};
-use embassy_executor::task;
+use embassy_executor::{task, Spawner};
 use embassy_ros::{Context, Error, Publisher, Qos, Topic};
 use embassy_time::{Duration, Timer};
 use tenshi_no_hana::drivers::hcsr04;
@@ -9,17 +9,21 @@ use crate::ros_msgs;
 const FRAME_ID: &str = "ultrasonic_link";
 const PERIOD_MS: u64 = 100;
 
-pub(crate) static FRONT: Topic<ros_msgs::sensor_msgs::Range, 2> =
+static FRONT: Topic<ros_msgs::sensor_msgs::Range, 2> =
     Topic::new("/ultrasonic/front", Qos::sensor_data());
 
-pub(crate) type Sensor = hcsr04::Hcsr04<'static>;
+type Sensor = hcsr04::Hcsr04<'static>;
 
-pub(crate) fn prepare(context: Context) -> Result<Publisher<ros_msgs::sensor_msgs::Range>, Error> {
-    context.create_node("range")?.create_publisher(&FRONT)
+pub(crate) fn start(spawner: Spawner, context: Context, sensor: Sensor) -> Result<(), Error> {
+    let node = context.create_node("range")?;
+    let publisher = node.create_publisher(&FRONT)?;
+    context.export(&FRONT)?;
+    spawner.spawn(run(context, publisher, sensor).unwrap());
+    Ok(())
 }
 
 #[task]
-pub(crate) async fn run(
+async fn run(
     context: Context,
     publisher: Publisher<ros_msgs::sensor_msgs::Range>,
     mut sensor: Sensor,

@@ -1,5 +1,5 @@
 use defmt::{info, warn};
-use embassy_executor::task;
+use embassy_executor::{task, Spawner};
 use embassy_ros::{Context, Error, Publisher, Qos, Topic};
 use embassy_time::{Duration, Instant, Timer};
 use tenshi_no_hana::odometry::OpenLoopOdometry;
@@ -9,12 +9,21 @@ use crate::{nodes::motor::state::read_motion_state_with_timeout, ros_msgs};
 const FRAME_ODOMETRY: &str = "odom";
 const FRAME_BASE_LINK: &str = "base_link";
 const PUBLISH_PERIOD_MS: u64 = 100;
-pub(crate) static ODOM: Topic<ros_msgs::nav_msgs::Odometry> =
-    Topic::new("/odom", Qos::sensor_data());
-pub(crate) static TF: Topic<ros_msgs::tf2_msgs::TFMessage> = Topic::new("/tf", Qos::sensor_data());
+static ODOM: Topic<ros_msgs::nav_msgs::Odometry> = Topic::new("/odom", Qos::sensor_data());
+static TF: Topic<ros_msgs::tf2_msgs::TFMessage> = Topic::new("/tf", Qos::sensor_data());
+
+pub(crate) fn start(spawner: Spawner, context: Context) -> Result<(), Error> {
+    let node = context.create_node("odom")?;
+    let publisher = node.create_publisher(&ODOM)?;
+    let tf_publisher = node.create_publisher(&TF)?;
+    context.export(&ODOM)?;
+    context.export(&TF)?;
+    spawner.spawn(run(context, publisher, tf_publisher).unwrap());
+    Ok(())
+}
 
 #[task]
-pub(crate) async fn run(
+async fn run(
     context: Context,
     publisher: Publisher<ros_msgs::nav_msgs::Odometry>,
     tf_publisher: Publisher<ros_msgs::tf2_msgs::TFMessage>,
@@ -81,22 +90,6 @@ pub(crate) async fn run(
         }
         Timer::after(Duration::from_millis(PUBLISH_PERIOD_MS)).await;
     }
-}
-
-pub(crate) fn prepare(
-    context: Context,
-) -> Result<
-    (
-        Publisher<ros_msgs::nav_msgs::Odometry>,
-        Publisher<ros_msgs::tf2_msgs::TFMessage>,
-    ),
-    Error,
-> {
-    let node = context.create_node("odom")?;
-    let odometry = node.create_publisher(&ODOM)?;
-    let tf = node.create_publisher(&TF)?;
-    info!("[odom] /odom and /tf publishers ready");
-    Ok((odometry, tf))
 }
 
 #[allow(clippy::too_many_arguments)]

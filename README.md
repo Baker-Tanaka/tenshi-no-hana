@@ -86,7 +86,7 @@ Limit the PWM duty to **~60 %** in firmware to keep the effective motor voltage 
 The firmware uses a static launch composition rather than a runtime ROS 2
 launch file. [`src/main.rs`](src/main.rs) is only the Embassy entry point:
 it initializes the RP2040, assembles board resources, and calls
-[`src/launch.rs`](src/launch.rs). To add or remove a node, change the spawn list
+[`src/launch.rs`](src/launch.rs). To add or remove a node, change the node startup list
 in the launch module, not the entry point.
 
 | Module | Responsibility |
@@ -101,9 +101,11 @@ in the launch module, not the entry point.
 | [`nodes/odometry/`](src/nodes/odometry/) | Open-loop `/odom` and `/tf` |
 
 Each node keeps its task implementation, topics and node-specific configuration
-in its own folder. The launch composition moves each hardware resource into
-the one task that uses it, while passing an `embassy_ros::Context` and typed
-endpoints to nodes. No node selects a local versus network publisher.
+in its own folder. Each node exposes only `start(spawner, context, hardware)`
+(odometry needs no hardware). Its topics, endpoint creation, ROS directions and
+task are private. Launch passes the shared `embassy_ros::Context` and transfers
+hardware ownership; it does not assemble or pass publishers/subscriptions.
+No node selects a local versus network publisher.
 The IMU task owns its I2C bus directly; it does not need a shared-bus cell.
 Motor and odometry tasks share one short critical-section-protected snapshot,
 so velocity components and their update time cannot come from different samples.
@@ -142,9 +144,11 @@ inputs and fixed capacities. Generated Header types offer `set_stamp`, and
 the low-level backend retains queue-admission deadlines. Framework publishing
 is nonblocking keep-last acceptance, not delivery ACKs or reliable event delivery.
 
-`launch.rs` initializes the framework once and prepares all endpoints without
-network I/O. It selects ROS directions with `context.export` / `context.import`,
-then spawns sensor, motor, odometry and network tasks. The framework connection
+`launch.rs` initializes the framework once and calls each node's synchronous
+`start` entry point, motor first. Each node registers its endpoints and ROS
+directions with `context.export` / `context.import` before spawning its task,
+without network I/O. Network starts last, so all registrations finish before
+the first connection attempt seals them. The framework connection
 task bridges the existing ROS interfaces without node-specific bridge loops.
 Network startup may continue
 retrying indefinitely without blocking local control. Existing ROS topic names

@@ -88,7 +88,7 @@ RP2040 の GPIO は **5V 非耐圧**。以下の 2 信号は **10kΩ + 15kΩ の
 [`src/main.rs`](src/main.rs) は Embassy のエントリーポイントに限定し、
 RP2040 初期化、ボードリソースの組み立て、[`src/launch.rs`](src/launch.rs) の
 呼び出しだけを担当します。ノードを追加・削除するときは `main.rs` ではなく、
-`launch.rs` の spawn 一覧を変更します。
+`launch.rs` のノード起動一覧を変更します。
 
 | モジュール | 責務 |
 | --- | --- |
@@ -102,8 +102,11 @@ RP2040 初期化、ボードリソースの組み立て、[`src/launch.rs`](src/
 | [`nodes/odometry/`](src/nodes/odometry/) | open-loop `/odom` と `/tf` |
 
 各ノードの処理、topic、ノード固有設定は専用フォルダにまとめます。
-Embassy の所有権に従って、デバイスは利用するタスクへ一度だけ移譲し、
-ノードには `embassy_ros::Context` と型付き endpoint を渡します。
+各ノードは `start(spawner, context, hardware)` だけを起動入口として公開します
+（odometry はハードウェア不要）。topic、endpoint 作成、ROS 通信方向、
+task はノード内部に隠します。launch は共有の `embassy_ros::Context` を渡し、
+Embassy の所有権に従ってデバイスを一度だけ移譲します。
+Publisher / Subscription を組み立ててノードへ渡す責務は持ちません。
 ノード側でローカル用とネットワーク用の Publisher を使い分ける必要はありません。
 IMU タスクは I2C バスを直接所有するため、共有バス用のセルは不要です。
 motor と odometry 間では、速度と更新時刻を一つの短い critical section で
@@ -144,9 +147,11 @@ ROS `.msg` 生成はホスト専用の
 方式で、成功はデバイス内の受理を意味します。Agent 配送 ACK やイベントの
 確実な配送を保証する API ではありません。
 
-`launch.rs` は一度だけ `init()` し、ネットワーク I/O なしで全 endpoint を準備します。
-ROS 方向は `context.export` / `context.import` に集約し、その後センサー、
-モーター、odometry、network タスクを起動します。ノードごとの bridge 処理はなく、
+`launch.rs` は一度だけ `init()` し、モーターから順に各ノードの同期的な
+`start` を呼びます。各ノードはネットワーク I/O なしで endpoint と
+`context.export` / `context.import` による ROS 方向を登録し、自身の task を起動します。
+network は最後に起動し、接続処理が登録を確定する前に全ノードの登録を済ませます。
+ノードごとの bridge 処理はなく、
 フレームワークの connection タスクが既存の ROS interface を接続します。
 ネットワーク接続の再試行が続いてもローカル制御は動き続けます。
 既存の ROS topic 名とモーター制限は維持しています。

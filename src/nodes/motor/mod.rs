@@ -1,5 +1,5 @@
 use defmt::{info, warn};
-use embassy_executor::task;
+use embassy_executor::{task, Spawner};
 use embassy_futures::select::{select3, Either3};
 use embassy_ros::{Context, Error, Qos, Subscription, Topic};
 use embassy_time::{Duration, Instant, Timer};
@@ -15,21 +15,23 @@ const MAX_MOTOR_DUTY_SCALE: f32 = 0.6;
 const WHEEL_SEPARATION_M: f32 = 0.13;
 const MAX_WHEEL_SPEED_MPS: f32 = 0.4;
 
-pub(crate) static CMD_VEL: Topic<ros_msgs::geometry_msgs::Twist> = Topic::new(
+static CMD_VEL: Topic<ros_msgs::geometry_msgs::Twist> = Topic::new(
     "/cmd_vel",
     Qos::command(Duration::from_millis(CMD_VEL_TIMEOUT_MS)),
 );
 
-pub(crate) type Motors = Drv8835<'static>;
+type Motors = Drv8835<'static>;
 
-pub(crate) fn prepare(
-    context: Context,
-) -> Result<Subscription<ros_msgs::geometry_msgs::Twist>, Error> {
-    context.create_node("motor")?.create_subscription(&CMD_VEL)
+pub(crate) fn start(spawner: Spawner, context: Context, motors: Motors) -> Result<(), Error> {
+    let node = context.create_node("motor")?;
+    let commands = node.create_subscription(&CMD_VEL)?;
+    context.import(&CMD_VEL)?;
+    spawner.spawn(run(context, commands, motors).unwrap());
+    Ok(())
 }
 
 #[task]
-pub(crate) async fn run(
+async fn run(
     context: Context,
     mut commands: Subscription<ros_msgs::geometry_msgs::Twist>,
     mut motors: Motors,
