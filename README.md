@@ -102,11 +102,13 @@ in the launch module, not the entry point.
 | [`nodes/odometry/`](src/nodes/odometry/) | Open-loop `/odom` and `/tf` |
 
 Each node keeps its task implementation, topics and node-specific configuration
-in its own folder. Each node is one `embassy_ros::node!` definition with a
-synchronous `setup` and async `run` block, not separate start/run functions.
+in its own folder. Each node is one ordinary async function marked with
+`#[embassy_ros::node(name = "...")]`, with publishers/subscriptions declared on
+typed arguments. There is no setup/run tuple or separate startup function.
 Launch lists `nodes.register(imu::node, board.imu)?` and equivalent registrations
 (odometry receives `()`). The framework owns task allocation and spawning.
-Topics, endpoint creation, ROS directions and the generated task are private.
+Topics and the generated task are private; endpoint creation and ROS connection
+are automatic. Topic delivery is shared, but DDS endpoints belong to each node.
 Launch transfers hardware ownership; it does not pass publishers/subscriptions.
 No node selects a local versus network publisher.
 The IMU task owns its I2C bus directly; it does not need a shared-bus cell.
@@ -143,16 +145,18 @@ Board-specific Wi-Fi setup remains in `network.rs`.
 ROS `.msg` generation is provided by the host-only companion
 [`micro-xrce-dds-codegen`](external/micro_xrce_dds_rs/codegen/README.md).
 The application build script retains Wi-Fi configuration and selects message
-inputs and fixed capacities. Generated Header types offer `set_stamp`, and
+inputs and fixed capacities (32-byte strings and one sequence element, matching
+the single transform emitted on `/tf`). Generated Header types offer `set_stamp`, and
 the low-level backend retains queue-admission deadlines. Framework publishing
 is nonblocking keep-last acceptance, not delivery ACKs or reliable event delivery.
 
 `main.rs` initializes the framework once. `launch.rs` registers the node
 definitions, motor first. The framework synchronously prepares endpoints and
 ROS directions before scheduling each task, without network I/O. Registration
-failures are startup faults, not retryable transactions; launch reports them
-before starting networking. Network starts last, so all registrations finish before
-the first connection attempt seals them. The framework connection
+failures include node/topic/phase and poison configuration, preventing later
+registration or network startup. Main explicitly calls `nodes.finish()` after
+registration and before starting networking. There is no global activation barrier
+or rollback of previously spawned tasks. The framework connection
 task bridges the existing ROS interfaces without node-specific bridge loops.
 Network startup may continue
 retrying indefinitely without blocking local control. Existing ROS topic names

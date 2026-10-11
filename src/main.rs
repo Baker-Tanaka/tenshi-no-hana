@@ -31,5 +31,7 @@ async fn main(spawner: Spawner) {
     let board = board::init(peripherals);
     let context = defmt::unwrap!(embassy_ros::init(&ROS, InitOptions::default()));
     let nodes = NodeSpawner::new(spawner, context);
-    defmt::unwrap!(launch::register(&nodes, board, spawner));
+    let wifi = defmt::unwrap!(launch::register(&nodes, board));
+    let context = defmt::unwrap!(nodes.finish());
+    launch::network(spawner, context, wifi);
 }

@@ -1,5 +1,5 @@
 use embassy_executor::Spawner;
-use embassy_ros::{Error, NodeSpawner};
+use embassy_ros::{NodeSpawner, StartupError};
 
 use crate::{
     board::Board,
@@ -11,20 +11,14 @@ use crate::{
 pub(crate) fn register(
     nodes: &NodeSpawner,
     board: Board,
-    network_spawner: Spawner,
-) -> Result<(), Error> {
+) -> Result<crate::board::Wifi, StartupError> {
     nodes.register(motor::node, board.motors)?;
     nodes.register(imu::node, board.imu)?;
     nodes.register(range::node, board.range)?;
     nodes.register(odometry::node, ())?;
-    network_spawner.spawn(
-        network::run(
-            network_spawner,
-            nodes.context(),
-            board.wifi,
-            AppConfig::new(),
-        )
-        .map_err(|_| Error::TaskBusy)?,
-    );
-    Ok(())
+    Ok(board.wifi)
+}
+
+pub(crate) fn network(spawner: Spawner, context: embassy_ros::Context, wifi: crate::board::Wifi) {
+    spawner.spawn(network::run(spawner, context, wifi, AppConfig::new()).unwrap());
 }

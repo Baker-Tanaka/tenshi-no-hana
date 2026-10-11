@@ -43,7 +43,10 @@ fn main() {
     generate(
         &[manifest_dir.join("msgs")],
         &output_path,
-        Capacities::default(),
+        Capacities {
+            string: 32,
+            sequence: 1,
+        },
     )
     .unwrap_or_else(|error| panic!("ROS message generation failed: {error}"));
 }

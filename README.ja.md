@@ -103,11 +103,13 @@ RP2040 と ROS context の初期化、`NodeSpawner` への spawner の受け渡�
 | [`nodes/odometry/`](src/nodes/odometry/) | open-loop `/odom` と `/tf` |
 
 各ノードの処理、topic、ノード固有設定は専用フォルダにまとめます。
-各ノードは `embassy_ros::node!` の一つの定義に、同期的な `setup` と
-非同期の `run` ブロックを記述します。start/run の二つの関数は不要です。
+各ノードは `#[embassy_ros::node(name = "...")]` を付けた普通の async 関数として
+記述し、型付き引数に Publisher / Subscription を宣言します。
+setup/run の tuple 配線や別の起動関数は不要です。
 launch は `nodes.register(imu::node, board.imu)?` のように起動対象を登録します
 （odometry のリソースは `()`）。task の確保と spawn はフレームワークが担当します。
-topic、endpoint 作成、ROS 通信方向、生成される task はノード内部に隠します。
+topic と生成される task はノード内部に隠し、endpoint 作成と ROS 接続は自動化します。
+Topic の内部配送は共有しますが、DDS endpoint は各ノードに所属します。
 Embassy の所有権に従ってデバイスを一度だけ移譲します。
 Publisher / Subscription を組み立ててノードへ渡す責務は持ちません。
 ノード側でローカル用とネットワーク用の Publisher を使い分ける必要はありません。
@@ -145,16 +147,19 @@ entity 準備、routing、時刻同期はフレームワークが担当し、
 ROS `.msg` 生成はホスト専用の
 [`micro-xrce-dds-codegen`](external/micro_xrce_dds_rs/codegen/README.md)
 を build dependency として使います。アプリの build script は Wi-Fi 設定と
-入力メッセージ・固定容量の指定を担当します。生成された Header には
+入力メッセージ・固定容量の指定を担当します。文字列は 32 バイト、
+sequence は `/tf` が一つの transform を送る構成に合わせて一要素です。
+生成された Header には
 `set_stamp` を提供します。公開 Publisher は非同期通信を待たない keep-last
 方式で、成功はデバイス内の受理を意味します。Agent 配送 ACK やイベントの
 確実な配送を保証する API ではありません。
 
 `main.rs` は一度だけ `init()` し、`launch.rs` はモーターから順にノード定義を
 登録します。フレームワークはネットワーク I/O なしで endpoint と ROS 方向の
-準備を同期的に済ませてから task を起動します。登録失敗は再試行可能な
-トランザクションではなく起動エラーとして報告し、network を起動しません。
-network は最後に起動し、接続処理が登録を確定する前に全ノードの登録を済ませます。
+準備を同期的に済ませてから task を起動します。登録失敗はノード名・topic・
+失敗フェーズ付きで報告し、後続登録・構成確定・ネットワーク接続を禁止します。
+main は登録後に `nodes.finish()` で明示的に構成を確定してから network を起動します。
+全ノードの同時有効化や起動済み task のロールバックは保証しません。
 ノードごとの bridge 処理はなく、
 フレームワークの connection タスクが既存の ROS interface を接続します。
 ネットワーク接続の再試行が続いてもローカル制御は動き続けます。

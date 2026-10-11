@@ -1,6 +1,6 @@
 use defmt::{info, warn};
 use embassy_futures::select::{select3, Either3};
-use embassy_ros::{Qos, Subscription, Topic};
+use embassy_ros::{Node, Qos, Subscription, Topic};
 use embassy_time::{Duration, Instant, Timer};
 
 use crate::ros_msgs;
@@ -21,98 +21,92 @@ static CMD_VEL: Topic<ros_msgs::geometry_msgs::Twist> = Topic::new(
 
 type Motors = Drv8835<'static>;
 
-embassy_ros::node! {
-    pub(crate) fn node(context: Context, motors: Motors) {
-        setup {
-            let node = context.create_node("motor")?;
-            let commands = node.create_subscription(&CMD_VEL)?;
-            context.import(&CMD_VEL)?;
-            Ok((commands,))
-        }
-        run(commands: Subscription<ros_msgs::geometry_msgs::Twist>) {
-            let mut commands = commands;
-            let mut motors = motors;
-            info!("[motor] task start");
-            let config = DiffDriveConfig::new(WHEEL_SEPARATION_M, MAX_WHEEL_SPEED_MPS);
-            let mut connection = defmt::unwrap!(context.connection().watch());
-            let mut epoch = connection.current().await.epoch;
-            let mut last_command = Instant::now();
-            let mut stopped = true;
-            stop(&mut motors);
+#[embassy_ros::node(name = "motor")]
+pub(crate) async fn node(
+    node: Node,
+    mut motors: Motors,
+    #[subscription(topic = &CMD_VEL)] mut commands: Subscription<ros_msgs::geometry_msgs::Twist>,
+) {
+    let context = node.context();
+    info!("[motor] task start");
+    let config = DiffDriveConfig::new(WHEEL_SEPARATION_M, MAX_WHEEL_SPEED_MPS);
+    let mut connection = defmt::unwrap!(context.connection().watch());
+    let mut epoch = connection.current().await.epoch;
+    let mut last_command = Instant::now();
+    let mut stopped = true;
+    stop(&mut motors);
 
-            loop {
-                let deadline = last_command + Duration::from_millis(CMD_VEL_TIMEOUT_MS);
-                match select3(
-                    commands.recv_sample(),
-                    connection.changed(),
-                    Timer::at(deadline),
-                )
-                .await
-                {
-                    Either3::First(Ok(sample)) => {
-                        let status = context.connection().status();
-                        if epoch != status.epoch {
-                            epoch = status.epoch;
-                            stop(&mut motors);
-                            stopped = true;
-                            warn!("[motor] connection epoch changed, stop");
-                            continue;
-                        }
-                        let twist = sample.message;
-                        let linear = twist.linear.x as f32;
-                        let angular = twist.angular.z as f32;
-                        if !linear.is_finite() || !angular.is_finite() {
-                            warn!("[motor] non-finite command, stop");
-                            stop(&mut motors);
-                            stopped = true;
-                            continue;
-                        }
-                        last_command = sample.received_at;
-                        if linear == 0.0 && angular == 0.0 {
-                            stop(&mut motors);
-                            stopped = true;
-                            continue;
-                        }
-                        let (left, right) = twist_to_wheels(&config, linear, angular);
-                        let left_limited = left * MAX_MOTOR_DUTY_SCALE;
-                        let right_limited = right * MAX_MOTOR_DUTY_SCALE;
-                        motors.set_left(left_limited);
-                        motors.set_right(right_limited);
-                        let left_speed = left_limited * MAX_WHEEL_SPEED_MPS;
-                        let right_speed = right_limited * MAX_WHEEL_SPEED_MPS;
-                        publish_motion_state(
-                            0.5 * (left_speed + right_speed),
-                            (right_speed - left_speed) / WHEEL_SEPARATION_M,
-                        );
-                        stopped = false;
-                        info!(
-                            "[/cmd_vel] lx={} az={} -> limited l={} r={}",
-                            linear, angular, left_limited, right_limited
-                        );
-                    }
-                    Either3::First(Err(error)) => {
-                        warn!("[motor] command rejected: {}, stop", error);
-                        stop(&mut motors);
-                        stopped = true;
-                    }
-                    Either3::Second(status) => {
-                        if epoch != status.epoch || !status.is_ready() {
-                            stop(&mut motors);
-                            stopped = true;
-                            warn!("[motor] connection changed, stop");
-                        }
-                        epoch = status.epoch;
-                    }
-                    Either3::Third(()) => {
-                        if !stopped {
-                            stop(&mut motors);
-                            stopped = true;
-                            warn!("[motor] cmd_vel timeout, stop");
-                        }
-                        // Keep the idle watchdog yielding rather than polling an expired timer.
-                        last_command = Instant::now();
-                    }
+    loop {
+        let deadline = last_command + Duration::from_millis(CMD_VEL_TIMEOUT_MS);
+        match select3(
+            commands.recv_sample(),
+            connection.changed(),
+            Timer::at(deadline),
+        )
+        .await
+        {
+            Either3::First(Ok(sample)) => {
+                let status = context.connection().status();
+                if epoch != status.epoch {
+                    epoch = status.epoch;
+                    stop(&mut motors);
+                    stopped = true;
+                    warn!("[motor] connection epoch changed, stop");
+                    continue;
                 }
+                let twist = sample.message;
+                let linear = twist.linear.x as f32;
+                let angular = twist.angular.z as f32;
+                if !linear.is_finite() || !angular.is_finite() {
+                    warn!("[motor] non-finite command, stop");
+                    stop(&mut motors);
+                    stopped = true;
+                    continue;
+                }
+                last_command = sample.received_at;
+                if linear == 0.0 && angular == 0.0 {
+                    stop(&mut motors);
+                    stopped = true;
+                    continue;
+                }
+                let (left, right) = twist_to_wheels(&config, linear, angular);
+                let left_limited = left * MAX_MOTOR_DUTY_SCALE;
+                let right_limited = right * MAX_MOTOR_DUTY_SCALE;
+                motors.set_left(left_limited);
+                motors.set_right(right_limited);
+                let left_speed = left_limited * MAX_WHEEL_SPEED_MPS;
+                let right_speed = right_limited * MAX_WHEEL_SPEED_MPS;
+                publish_motion_state(
+                    0.5 * (left_speed + right_speed),
+                    (right_speed - left_speed) / WHEEL_SEPARATION_M,
+                );
+                stopped = false;
+                info!(
+                    "[/cmd_vel] lx={} az={} -> limited l={} r={}",
+                    linear, angular, left_limited, right_limited
+                );
+            }
+            Either3::First(Err(error)) => {
+                warn!("[motor] command rejected: {}, stop", error);
+                stop(&mut motors);
+                stopped = true;
+            }
+            Either3::Second(status) => {
+                if epoch != status.epoch || !status.is_ready() {
+                    stop(&mut motors);
+                    stopped = true;
+                    warn!("[motor] connection changed, stop");
+                }
+                epoch = status.epoch;
+            }
+            Either3::Third(()) => {
+                if !stopped {
+                    stop(&mut motors);
+                    stopped = true;
+                    warn!("[motor] cmd_vel timeout, stop");
+                }
+                // Keep the idle watchdog yielding rather than polling an expired timer.
+                last_command = Instant::now();
             }
         }
     }
