@@ -85,7 +85,8 @@ Limit the PWM duty to **~60 %** in firmware to keep the effective motor voltage 
 
 The firmware uses a static launch composition rather than a runtime ROS 2
 launch file. [`src/main.rs`](src/main.rs) is only the Embassy entry point:
-it initializes the RP2040, assembles board resources, and calls
+it initializes the RP2040 and ROS context, gives the spawner to `NodeSpawner`,
+assembles board resources, and calls
 [`src/launch.rs`](src/launch.rs). To add or remove a node, change the node startup list
 in the launch module, not the entry point.
 
@@ -101,10 +102,12 @@ in the launch module, not the entry point.
 | [`nodes/odometry/`](src/nodes/odometry/) | Open-loop `/odom` and `/tf` |
 
 Each node keeps its task implementation, topics and node-specific configuration
-in its own folder. Each node exposes only `start(spawner, context, hardware)`
-(odometry needs no hardware). Its topics, endpoint creation, ROS directions and
-task are private. Launch passes the shared `embassy_ros::Context` and transfers
-hardware ownership; it does not assemble or pass publishers/subscriptions.
+in its own folder. Each node is one `embassy_ros::node!` definition with a
+synchronous `setup` and async `run` block, not separate start/run functions.
+Launch lists `nodes.register(imu::node, board.imu)?` and equivalent registrations
+(odometry receives `()`). The framework owns task allocation and spawning.
+Topics, endpoint creation, ROS directions and the generated task are private.
+Launch transfers hardware ownership; it does not pass publishers/subscriptions.
 No node selects a local versus network publisher.
 The IMU task owns its I2C bus directly; it does not need a shared-bus cell.
 Motor and odometry tasks share one short critical-section-protected snapshot,
@@ -144,10 +147,11 @@ inputs and fixed capacities. Generated Header types offer `set_stamp`, and
 the low-level backend retains queue-admission deadlines. Framework publishing
 is nonblocking keep-last acceptance, not delivery ACKs or reliable event delivery.
 
-`launch.rs` initializes the framework once and calls each node's synchronous
-`start` entry point, motor first. Each node registers its endpoints and ROS
-directions with `context.export` / `context.import` before spawning its task,
-without network I/O. Network starts last, so all registrations finish before
+`main.rs` initializes the framework once. `launch.rs` registers the node
+definitions, motor first. The framework synchronously prepares endpoints and
+ROS directions before scheduling each task, without network I/O. Registration
+failures are startup faults, not retryable transactions; launch reports them
+before starting networking. Network starts last, so all registrations finish before
 the first connection attempt seals them. The framework connection
 task bridges the existing ROS interfaces without node-specific bridge loops.
 Network startup may continue

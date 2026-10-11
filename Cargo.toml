@@ -82,6 +82,7 @@ micro-xrce-dds-rs = { path = "external/micro_xrce_dds_rs", default-features = fa
 embassy-ros = { path = "external/micro_xrce_dds_rs/embassy_ros", default-features = false, features = [
     "defmt",
     "embassy-net",
+    "executor",
 ], optional = true }
 
 [build-dependencies]

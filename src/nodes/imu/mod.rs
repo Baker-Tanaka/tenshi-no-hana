@@ -1,6 +1,5 @@
 use defmt::{info, warn};
-use embassy_executor::{task, Spawner};
-use embassy_ros::{Context, Error, Publisher, Qos, Topic};
+use embassy_ros::{Publisher, Qos, Topic};
 use embassy_time::{Duration, Timer};
 
 use crate::{board::Imu, ros_msgs};
@@ -13,60 +12,58 @@ const SENSOR_FAILURE_LIMIT: u32 = 25;
 
 static DATA: Topic<ros_msgs::sensor_msgs::Imu, 2> = Topic::new("/imu/data", Qos::sensor_data());
 
-pub(crate) fn start(spawner: Spawner, context: Context, device: Imu) -> Result<(), Error> {
-    let node = context.create_node("imu")?;
-    let publisher = node.create_publisher(&DATA)?;
-    context.export(&DATA)?;
-    spawner.spawn(run(context, publisher, device).unwrap());
-    Ok(())
-}
+embassy_ros::node! {
+    pub(crate) fn node(context: Context, device: Imu) {
+        setup {
+            let node = context.create_node("imu")?;
+            let publisher = node.create_publisher(&DATA)?;
+            context.export(&DATA)?;
+            Ok((publisher,))
+        }
+        run(publisher: Publisher<ros_msgs::sensor_msgs::Imu>) {
+            let mut device = device;
+            info!("[imu] task start");
+            let mut address = None;
+            let mut read_failures = 0u32;
 
-#[task]
-async fn run(
-    context: Context,
-    publisher: Publisher<ros_msgs::sensor_msgs::Imu>,
-    mut device: Imu,
-) -> ! {
-    info!("[imu] task start");
-    let mut address = None;
-    let mut read_failures = 0u32;
+            loop {
+                if address.is_none() {
+                    match icm20602::init(&mut device).await {
+                        Ok(detected) => {
+                            address = Some(detected);
+                            read_failures = 0;
+                            info!("[imu] detected at 0x{:02x}", detected);
+                        }
+                        Err(()) => {
+                            warn!("[imu] detection failed; retrying");
+                            Timer::after(Duration::from_secs(SENSOR_RETRY_SECS)).await;
+                            continue;
+                        }
+                    }
+                }
 
-    loop {
-        if address.is_none() {
-            match icm20602::init(&mut device).await {
-                Ok(detected) => {
-                    address = Some(detected);
-                    read_failures = 0;
-                    info!("[imu] detected at 0x{:02x}", detected);
+                if let Ok(reading) = icm20602::read(&mut device, address.unwrap()) {
+                    if read_failures != 0 {
+                        info!("[imu] reading recovered");
+                        read_failures = 0;
+                    }
+                    let message = to_message(reading, context.clock().now());
+                    if let Err(error) = publisher.publish(&message) {
+                        warn!("[imu] publish failed: {}", error);
+                    }
+                } else {
+                    read_failures = read_failures.saturating_add(1);
+                    if read_failures == 1 || read_failures.is_multiple_of(100) {
+                        warn!("[imu] read failed, count={}", read_failures);
+                    }
+                    if read_failures >= SENSOR_FAILURE_LIMIT {
+                        address = None;
+                        warn!("[imu] sensor lost; restarting detection");
+                    }
                 }
-                Err(()) => {
-                    warn!("[imu] detection failed; retrying");
-                    Timer::after(Duration::from_secs(SENSOR_RETRY_SECS)).await;
-                    continue;
-                }
+                Timer::after(Duration::from_millis(PERIOD_MS)).await;
             }
         }
-
-        if let Ok(reading) = icm20602::read(&mut device, address.unwrap()) {
-            if read_failures != 0 {
-                info!("[imu] reading recovered");
-                read_failures = 0;
-            }
-            let message = to_message(reading, context.clock().now());
-            if let Err(error) = publisher.publish(&message) {
-                warn!("[imu] publish failed: {}", error);
-            }
-        } else {
-            read_failures = read_failures.saturating_add(1);
-            if read_failures == 1 || read_failures.is_multiple_of(100) {
-                warn!("[imu] read failed, count={}", read_failures);
-            }
-            if read_failures >= SENSOR_FAILURE_LIMIT {
-                address = None;
-                warn!("[imu] sensor lost; restarting detection");
-            }
-        }
-        Timer::after(Duration::from_millis(PERIOD_MS)).await;
     }
 }
 

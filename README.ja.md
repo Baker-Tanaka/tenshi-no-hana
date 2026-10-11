@@ -86,7 +86,8 @@ RP2040 の GPIO は **5V 非耐圧**。以下の 2 信号は **10kΩ + 15kΩ の
 組み込み側では、実行時にノードを探して起動する ROS 2 launch ファイルではなく、
 起動時にタスク構成を固定する `launch` モジュールを使います。
 [`src/main.rs`](src/main.rs) は Embassy のエントリーポイントに限定し、
-RP2040 初期化、ボードリソースの組み立て、[`src/launch.rs`](src/launch.rs) の
+RP2040 と ROS context の初期化、`NodeSpawner` への spawner の受け渡し、
+ボードリソースの組み立て、[`src/launch.rs`](src/launch.rs) の
 呼び出しだけを担当します。ノードを追加・削除するときは `main.rs` ではなく、
 `launch.rs` のノード起動一覧を変更します。
 
@@ -102,9 +103,11 @@ RP2040 初期化、ボードリソースの組み立て、[`src/launch.rs`](src/
 | [`nodes/odometry/`](src/nodes/odometry/) | open-loop `/odom` と `/tf` |
 
 各ノードの処理、topic、ノード固有設定は専用フォルダにまとめます。
-各ノードは `start(spawner, context, hardware)` だけを起動入口として公開します
-（odometry はハードウェア不要）。topic、endpoint 作成、ROS 通信方向、
-task はノード内部に隠します。launch は共有の `embassy_ros::Context` を渡し、
+各ノードは `embassy_ros::node!` の一つの定義に、同期的な `setup` と
+非同期の `run` ブロックを記述します。start/run の二つの関数は不要です。
+launch は `nodes.register(imu::node, board.imu)?` のように起動対象を登録します
+（odometry のリソースは `()`）。task の確保と spawn はフレームワークが担当します。
+topic、endpoint 作成、ROS 通信方向、生成される task はノード内部に隠します。
 Embassy の所有権に従ってデバイスを一度だけ移譲します。
 Publisher / Subscription を組み立ててノードへ渡す責務は持ちません。
 ノード側でローカル用とネットワーク用の Publisher を使い分ける必要はありません。
@@ -147,9 +150,10 @@ ROS `.msg` 生成はホスト専用の
 方式で、成功はデバイス内の受理を意味します。Agent 配送 ACK やイベントの
 確実な配送を保証する API ではありません。
 
-`launch.rs` は一度だけ `init()` し、モーターから順に各ノードの同期的な
-`start` を呼びます。各ノードはネットワーク I/O なしで endpoint と
-`context.export` / `context.import` による ROS 方向を登録し、自身の task を起動します。
+`main.rs` は一度だけ `init()` し、`launch.rs` はモーターから順にノード定義を
+登録します。フレームワークはネットワーク I/O なしで endpoint と ROS 方向の
+準備を同期的に済ませてから task を起動します。登録失敗は再試行可能な
+トランザクションではなく起動エラーとして報告し、network を起動しません。
 network は最後に起動し、接続処理が登録を確定する前に全ノードの登録を済ませます。
 ノードごとの bridge 処理はなく、
 フレームワークの connection タスクが既存の ROS interface を接続します。

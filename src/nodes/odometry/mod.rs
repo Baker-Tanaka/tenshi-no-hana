@@ -1,6 +1,5 @@
 use defmt::{info, warn};
-use embassy_executor::{task, Spawner};
-use embassy_ros::{Context, Error, Publisher, Qos, Topic};
+use embassy_ros::{Publisher, Qos, Topic};
 use embassy_time::{Duration, Instant, Timer};
 use tenshi_no_hana::odometry::OpenLoopOdometry;
 
@@ -12,83 +11,73 @@ const PUBLISH_PERIOD_MS: u64 = 100;
 static ODOM: Topic<ros_msgs::nav_msgs::Odometry> = Topic::new("/odom", Qos::sensor_data());
 static TF: Topic<ros_msgs::tf2_msgs::TFMessage> = Topic::new("/tf", Qos::sensor_data());
 
-pub(crate) fn start(spawner: Spawner, context: Context) -> Result<(), Error> {
-    let node = context.create_node("odom")?;
-    let publisher = node.create_publisher(&ODOM)?;
-    let tf_publisher = node.create_publisher(&TF)?;
-    context.export(&ODOM)?;
-    context.export(&TF)?;
-    spawner.spawn(run(context, publisher, tf_publisher).unwrap());
-    Ok(())
-}
-
-#[task]
-async fn run(
-    context: Context,
-    publisher: Publisher<ros_msgs::nav_msgs::Odometry>,
-    tf_publisher: Publisher<ros_msgs::tf2_msgs::TFMessage>,
-) -> ! {
-    use ros_msgs::geometry_msgs::TransformStamped;
-    use ros_msgs::nav_msgs::Odometry;
-    use ros_msgs::std_msgs::Header;
-    use ros_msgs::tf2_msgs::TFMessage;
-
-    let mut header = Header::default();
-    header.frame_id.push_str(FRAME_ODOMETRY).unwrap();
-    let mut odometry_message = Odometry {
-        header: header.clone(),
-        ..Default::default()
-    };
-    odometry_message
-        .child_frame_id
-        .push_str(FRAME_BASE_LINK)
-        .unwrap();
-    odometry_message.pose.pose.orientation.w = 1.0;
-
-    let mut transform = TransformStamped {
-        header,
-        ..Default::default()
-    };
-    transform.child_frame_id.push_str(FRAME_BASE_LINK).unwrap();
-    transform.transform.rotation.w = 1.0;
-
-    info!("[odom] task start");
-    let mut estimator = OpenLoopOdometry::new();
-    let mut last_tick = Instant::now();
-    loop {
-        let now = Instant::now();
-        let dt = (now - last_tick).as_micros() as f32 / 1_000_000.0;
-        last_tick = now;
-        let (linear, angular) = read_motion_state_with_timeout(now);
-        let pose = estimator.update(linear, angular, dt);
-        let stamp = context.clock().now();
-        let half_yaw = 0.5 * pose.yaw;
-        let yaw_sin = libm::sinf(half_yaw);
-        let yaw_cos = libm::cosf(half_yaw);
-        fill_odometry(
-            &mut odometry_message,
-            pose,
-            linear,
-            angular,
-            yaw_sin,
-            yaw_cos,
-        );
-        fill_transform(&mut transform, pose, yaw_sin, yaw_cos);
-
-        odometry_message.header.set_stamp(stamp);
-        transform.header.set_stamp(stamp);
-
-        if let Err(error) = publisher.publish(&odometry_message) {
-            warn!("[odom] /odom publish failed: {}", error);
+embassy_ros::node! {
+    pub(crate) fn node(context: Context, _resources: ()) {
+        setup {
+            let node = context.create_node("odom")?;
+            let publisher = node.create_publisher(&ODOM)?;
+            let tf_publisher = node.create_publisher(&TF)?;
+            context.export(&ODOM)?;
+            context.export(&TF)?;
+            Ok((publisher, tf_publisher))
         }
+        run(
+            publisher: Publisher<ros_msgs::nav_msgs::Odometry>,
+            tf_publisher: Publisher<ros_msgs::tf2_msgs::TFMessage>,
+        ) {
+            use ros_msgs::geometry_msgs::TransformStamped;
+            use ros_msgs::nav_msgs::Odometry;
+            use ros_msgs::std_msgs::Header;
+            use ros_msgs::tf2_msgs::TFMessage;
 
-        let mut tf_message = TFMessage::default();
-        if tf_message.transforms.push(transform.clone()).is_err() {
-            warn!("[odom] /tf message capacity exceeded");
-        } else if let Err(error) = tf_publisher.publish(&tf_message) {
-            warn!("[odom] /tf publish failed: {}", error);
+            let mut header = Header::default();
+            header.frame_id.push_str(FRAME_ODOMETRY).unwrap();
+            let mut odometry_message = Odometry {
+                header: header.clone(),
+                ..Default::default()
+            };
+            odometry_message.child_frame_id.push_str(FRAME_BASE_LINK).unwrap();
+            odometry_message.pose.pose.orientation.w = 1.0;
+
+            let mut transform = TransformStamped {
+                header,
+                ..Default::default()
+            };
+            transform.child_frame_id.push_str(FRAME_BASE_LINK).unwrap();
+            transform.transform.rotation.w = 1.0;
+
+            info!("[odom] task start");
+            let mut estimator = OpenLoopOdometry::new();
+            let mut last_tick = Instant::now();
+            loop {
+                let now = Instant::now();
+                let dt = (now - last_tick).as_micros() as f32 / 1_000_000.0;
+                last_tick = now;
+                let (linear, angular) = read_motion_state_with_timeout(now);
+                let pose = estimator.update(linear, angular, dt);
+                let stamp = context.clock().now();
+                let half_yaw = 0.5 * pose.yaw;
+                let yaw_sin = libm::sinf(half_yaw);
+                let yaw_cos = libm::cosf(half_yaw);
+                fill_odometry(
+                    &mut odometry_message, pose, linear, angular, yaw_sin, yaw_cos,
+                );
+                fill_transform(&mut transform, pose, yaw_sin, yaw_cos);
+                odometry_message.header.set_stamp(stamp);
+                transform.header.set_stamp(stamp);
+
+                if let Err(error) = publisher.publish(&odometry_message) {
+                    warn!("[odom] /odom publish failed: {}", error);
+                }
+                let mut tf_message = TFMessage::default();
+                if tf_message.transforms.push(transform.clone()).is_err() {
+                    warn!("[odom] /tf message capacity exceeded");
+                } else if let Err(error) = tf_publisher.publish(&tf_message) {
+                    warn!("[odom] /tf publish failed: {}", error);
+                }
+                Timer::after(Duration::from_millis(PUBLISH_PERIOD_MS)).await;
+            }
         }
-        Timer::after(Duration::from_millis(PUBLISH_PERIOD_MS)).await;
     }
 }
 
