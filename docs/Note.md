@@ -16,7 +16,7 @@ agent はまだ前回のエンティティを覚えている
 
 解消する方法
 方法	効果	副作用
-docker compose down && up -d で agent 完全再起動	警告が消える	再起動するたびに必要
+`docker restart tenshi-no-hana-container` (host): restart the container and Agent; clears the warning until the next firmware restart.
 client_key!() を毎回ランダムに変更	警告が消える	agent 側で entity が累積（メモリリーク的）
 警告メッセージのログレベルを warn! → debug! に下げる	通常運用でノイズ消える	真の問題が起きた時に気付きにくい
 何もしない（許容）	—	警告が出続ける
@@ -24,4 +24,3 @@ client_key!() を毎回ランダムに変更	警告が消える	agent 側で ent
 何もしないか、debug! に下げるのが現実的です。STATUS_OK_MATCHED 自体は agent の正しい動作で、後続の CREATE が 本当に 失敗するときだけ問題が顕在化します（その場合は別途 AgentRejected(0x80) 等のエラーが出る）。
 
 ログレベルを下げたい場合は変更可能です（executor.rs の該当行を warn! → debug! に変えるだけ）。希望があれば修正します。
-

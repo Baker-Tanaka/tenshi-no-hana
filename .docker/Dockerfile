@@ -63,5 +63,6 @@ COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 USER ${USERNAME}
+WORKDIR /tenshi-no-hana
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["sleep", "infinity"]

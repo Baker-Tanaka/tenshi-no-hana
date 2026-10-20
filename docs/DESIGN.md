@@ -404,10 +404,11 @@ elf2uf2-rs target/thumbv6m-none-eabi/release/tenshi-no-hana target/tenshi-no-han
 ### 8.3 Docker (micro-ROS Agent)
 
 ```sh
-cd <project_root>
-docker compose up -d
+# Open the repository in VS Code and run:
+# Dev Containers: Rebuild and Reopen in Container
+# The image entrypoint starts the micro-ROS Agent on TCP port 8888.
 
-# 動作確認
+# Run inside the development container:
 python3 verify_sub.py
 
 # または ROS2 CLI
@@ -422,4 +423,3 @@ ros2 topic echo /chatter std_msgs/msg/String
 - [embassy-net-esp-hosted](https://github.com/embassy-rs/embassy/tree/embassy-net-esp-hosted-v0.3.0/embassy-net-esp-hosted)
 - [esp-hosted-mcu](https://github.com/espressif/esp-hosted-mcu)
 - [Seeed Studio XIAO ESP32C3](https://wiki.seeedstudio.com/XIAO_ESP32C3_Getting_Started/)
-

@@ -81,6 +81,24 @@ Limit the PWM duty to **~60 %** in firmware to keep the effective motor voltage 
 - `micro_xrce_dds_rs` with micro-ROS Agent TCP transport
 - Custom message support for `angel_nose_msgs` (ethanol level, liquid height, environment data)
 
+## Development container
+
+Open the repository in VS Code and run **Dev Containers: Rebuild and Reopen in
+Container**. The [Dev Containers configuration](.devcontainer/devcontainer.json)
+builds the [Dockerfile](.docker/Dockerfile) directly; Docker Compose is not used.
+
+The repository is mounted at `/tenshi-no-hana` and commands run as `vscode`.
+The image entrypoint starts the micro-ROS Agent on TCP port `8888`, published
+on host port `8888` so the rover can connect to the host's LAN address.
+`host.docker.internal` resolves to the host gateway inside the container.
+Agent output is available at `/tmp/micro-ros-agent.log` inside the container.
+Use **Dev Containers: Reopen in Container** to start it again after closing VS Code.
+To restart the container and its Agent from the host, run:
+
+```sh
+docker restart tenshi-no-hana-container
+```
+
 ## Firmware architecture
 
 The firmware uses a static launch composition rather than a runtime ROS 2

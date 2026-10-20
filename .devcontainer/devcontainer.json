@@ -1,10 +1,24 @@
 {
     "name": "tenshi-no-hana",
-    "dockerComposeFile": "../.docker/compose.yaml",
-    "service": "tenshi-no-hana",
+    "build": {
+        "dockerfile": "../.docker/Dockerfile",
+        "context": "../.docker"
+    },
+    "workspaceMount": "source=${localWorkspaceFolder},target=/tenshi-no-hana,type=bind",
     "workspaceFolder": "/tenshi-no-hana",
+    "containerUser": "vscode",
     "remoteUser": "vscode",
     "updateRemoteUserUID": true,
+    "overrideCommand": false,
+    "containerEnv": {
+        "MICROROS_AGENT_AUTOSTART": "1",
+        "MICROROS_AGENT_PORT": "8888"
+    },
+    "runArgs": [
+        "--name=tenshi-no-hana-container",
+        "--add-host=host.docker.internal:host-gateway",
+        "--publish=8888:8888"
+    ],
     "customizations": {
         "vscode": {
             "extensions": [
