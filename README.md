@@ -13,19 +13,18 @@
 > 日本語版はこちら: [README.ja.md](./README.ja.md)
 
 ## Overview
-Angel's Nose is a compact 2-wheel rover based on the Baker link. Dev Rev.1 (RP2040) board. It patrols distilleries and barrel aging warehouses, detects ethanol vapor, and estimates barrel liquid surface using magnetic sensing.
+Angel's Nose is a compact 2-wheel rover based on the Baker link. Dev Rev.1 (RP2040) board. The current system targets ROS 2-controlled motion, IMU and ultrasonic sensing, and open-loop odometry. Distillery patrol, ethanol sensing and magnetic liquid-level estimation are future extensions, not implemented features.
 
 This project combines:
-- **micro_xrce_dds_rs** with a **micro-ROS Agent** bridge
-- **XIAO-ESP32-C3 as a Wi-Fi ESP-hosted MCU**
+- **ESP32-C6 as a Wi-Fi ESP-hosted MCU (slave firmware 2.12.9)**
 - **Embassy-rs no_std async runtime**
 - **micro_xrce_dds_rs** with a **micro-ROS Agent** bridge
 
 ## Key features
-- Ethanol vapor detection as a proxy for the barrel's "angel's share"
-- Non-contact barrel liquid level sensing using a floating magnet and magnetic field sensor
-- 6-axis IMU (ICM-20602) for odometry and attitude estimation
-- Wi-Fi communication via XIAO-ESP32-C3
+- ROS 2 velocity commands with a 500 ms motor watchdog
+- 6-axis IMU (ICM-20602) acceleration and angular velocity (no attitude fusion)
+- HC-SR04 ranging and open-loop wheel-command odometry
+- Wi-Fi communication via ESP32-C6
 - Low-cost and lightweight no_std embedded design
 
 ## Hardware bill of materials
@@ -48,6 +47,10 @@ Estimated Japan-focused pricing as of April 2026.
 
 ![](docs/schematics/tenshi_no_hana_wiring.svg)
 
+> The illustrations and C3 tables below describe the historical XIAO ESP32-C3 design.
+> The current hardware is ESP32-C6, running ESP-Hosted MCU slave 2.12.9.
+> Use the [verified current GPIO mapping](docs/DESIGN.md#ピンと電源), not the C3 tables.
+
 ### Power supply
 
 ```
@@ -64,7 +67,7 @@ Estimated Japan-focused pricing as of April 2026.
 
 The RP2040 GPIOs are **not 5 V tolerant**. Two signals need a **10 kΩ + 15 kΩ voltage divider** (5 V → 3.0 V):
 
-- **MQ-3B AOUT → GP26 (ADC0)** — AOUT swings up to ~5 V. Allow ~2 minutes warm-up after power-on; the firmware suppresses publishing during this period.
+- **MQ-3B AOUT → GP26 (ADC0)** — Reserved for a future sensor node; ADC acquisition and warm-up handling are not implemented. AOUT can reach ~5 V.
 - **HC-SR04 Echo → GP3** — Echo outputs 5 V pulses.
 
 ### Motor drive
@@ -74,12 +77,54 @@ Limit the PWM duty to **~60 %** in firmware to keep the effective motor voltage 
 (DRV8835 max 1.5 A/ch; place a bulk capacitor near VM).
 
 ## Wireless stack
-- Uses **XIAO-ESP32-C3** with ESP-hosted MCU firmware
+- Uses **ESP32-C6** with ESP-Hosted MCU slave firmware **2.12.9**
 - Uses the `external/embassy` submodule and `embassy-net-esp-hosted` from the `upstream-esp-hosted-mcu` fork
 
 ## Software stack
 - `micro_xrce_dds_rs` with micro-ROS Agent TCP transport
-- Custom message support for `angel_nose_msgs` (ethanol level, liquid height, environment data)
+- Generated `no_std` standard ROS message crates; no C RMW library is linked into the firmware
+
+## Firmware build
+
+```sh
+git submodule update --init --recursive
+cp wifi_config.json.example wifi_config.json
+# Edit wifi_config.json locally: SSID, password, Agent IPv4 address and port.
+cargo build --locked
+cargo build --release --locked
+```
+
+The toolchain is pinned in [rust-toolchain.toml](rust-toolchain.toml).
+Install `flip-link` (the development container already provides it).
+Do not commit Wi-Fi credentials. Invalid JSON, SSID size or Agent endpoints
+fail the build instead of producing a firmware with fallback settings.
+The current ESP-hosted fork limits passwords to 32 UTF-8 bytes; longer
+passwords are rejected at build time rather than retried indefinitely.
+The default feature is `wifi`; the binary requires this feature.
+Keep `opt-level = 2` for both application and dependencies in debug builds.
+Dependency-only optimization does not bound the stack of protobuf decoders
+monomorphized in the application. Debug symbols and assertions stay enabled.
+
+Pure rover math can be tested without a board:
+
+```sh
+cargo test --lib --no-default-features --target x86_64-unknown-linux-gnu
+```
+
+After changing [message definitions](msgs/) or device capacities, regenerate
+inside the ROS Jazzy development container:
+
+```sh
+bash external/micro_xrce_dds_rs/codegen/regenerate.sh
+# Check definitions, generator and generated output agree without rewriting:
+bash external/micro_xrce_dds_rs/codegen/regenerate.sh --check
+```
+
+See the [generator documentation](external/micro_xrce_dds_rs/codegen/README.md)
+for ament integration and tests. Commit regenerated crates together with their
+inputs. Changes inside a submodule must be committed and published in that
+repository before the parent can pin their revision; a parent-only commit
+cannot preserve uncommitted submodule source changes.
 
 ## Development container
 
@@ -151,8 +196,10 @@ Nodes read `context.clock().now()` at sampling time. Before the first
 successful synchronization the clock
 uses monotonic time since boot, as before; this is not Unix time.
 Connection retry policy, sensor calibration, motor limits and the node graph
-remain application-specific. A transport failure is logged; this composition
-does not implement automatic reconnection.
+remain application-specific. Transport failures are logged and the application
+retries the Agent connection. Wi-Fi link loss triggers reassociation; the
+ESP-hosted heartbeat notifier is used instead of the driver's panic-on-timeout
+default. Hardware initialization still depends on a responsive slave.
 
 The optional `embassy_ros::transport::embassy_net::Agent` adapter owns the TCP
 connection/handshake attempt. The application supplies the endpoint, static
@@ -160,12 +207,18 @@ connection/handshake attempt. The application supplies the endpoint, static
 Both connection and handshake failures are logged and retried during startup.
 Board-specific Wi-Fi setup remains in `network.rs`.
 
-ROS `.msg` generation is provided by the host-only companion
-[`micro-xrce-dds-codegen`](external/micro_xrce_dds_rs/codegen/README.md).
-The application build script retains Wi-Fi configuration and selects message
-inputs and fixed capacities (32-byte strings and one sequence element, matching
-the single transform emitted on `/tf`). Generated Header types offer `set_stamp`, and
-the low-level backend retains queue-admission deadlines. Framework publishing
+ROS message generation uses the official ROS IDL adapter/parser through the
+host-only [generator](external/micro_xrce_dds_rs/codegen/README.md), following
+the generator/runtime separation in
+[ros2_rust](https://github.com/ros2-rust/ros2_rust/blob/main/docs/message-generation.md).
+The [generated package crates](generated/) are checked in and use `no_std`
+types and CDR serialization, without C RMW bindings. Unbounded fields have
+device-local capacities of 32-byte strings and one sequence element, matching
+the single transform emitted on `/tf`. Regenerate when definitions or capacities
+change; normal firmware builds do not run Python or require ROS.
+The application build script only embeds validated Wi-Fi configuration and
+sets the linker search path. Generated Header types offer `set_stamp`.
+Framework publishing
 is nonblocking keep-last acceptance, not delivery ACKs or reliable event delivery.
 
 `main.rs` initializes the framework once. `launch.rs` registers the node
@@ -234,11 +287,17 @@ See [docs/DESIGN.md](docs/DESIGN.md) for the canonical hardware and system
 design.
 
 ## Future work
+- MQ-3B acquisition/calibration and magnetic liquid-level sensing
 - Wheel encoder or external localization integration for higher-accuracy Nav2
 - Autonomous mapping and multi-rover operation
 
-## ESP32-Hosted (ESP32-C3) pin mapping
-Pin assignments are extracted from `sdkconfig`.
+## Historical ESP32-Hosted (ESP32-C3) pin mapping
+
+This section is historical, not the current ESP32-C6 configuration.
+See the [current GPIO mapping](docs/DESIGN.md#ピンと電源).
+These are the intended pin assignments. The version and `sdkconfig` of the
+previously working ESP-hosted slave are not recorded; confirm them against the
+running device before rebuilding its firmware.
 
 > Reference: [Seeed Studio XIAO ESP32C3 Getting Started](https://wiki.seeedstudio.com/XIAO_ESP32_C3_Getting_Started/)
 

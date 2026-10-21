@@ -3,11 +3,15 @@ name = "tenshi-no-hana"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "tenshi-no-hana"
+path = "src/main.rs"
+required-features = ["wifi"]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
 default = ["wifi"]
-hal-rt = ["rp2040-hal/rt"]
 embassy = [
     "dep:embassy-executor",
     "dep:embassy-time",
@@ -26,6 +30,11 @@ wifi = [
     "dep:static_cell",
     "dep:micro-xrce-dds-rs",
     "dep:embassy-ros",
+    "dep:std_msgs",
+    "dep:geometry_msgs",
+    "dep:sensor_msgs",
+    "dep:nav_msgs",
+    "dep:tf2_msgs",
 ]
 
 [dependencies]
@@ -33,16 +42,9 @@ cortex-m = "0.7"
 cortex-m-rt = "0.7"
 libm = "0.2"
 embedded-hal = { version = "1.0.0" }
-embedded_hal_0_2 = { package = "embedded-hal", version = "0.2.5", features = [
-    "unproven",
-] }
 defmt = "1.0"
 defmt-rtt = "1.1"
 panic-probe = { version = "1.0", features = ["print-defmt"] }
-rp2040-hal = { version = "0.12", features = ["critical-section-impl"] }
-rp2040-boot2 = "0.3"
-critical-section = "1.2"
-fugit = "0.3"
 
 # Embassy dependencies (optional, enabled via "embassy" feature)
 embassy-executor = { version = "0.10", features = [
@@ -84,16 +86,23 @@ embassy-ros = { path = "external/micro_xrce_dds_rs/embassy_ros", default-feature
     "embassy-net",
     "executor",
 ], optional = true }
+std_msgs = { path = "generated/std_msgs", optional = true }
+geometry_msgs = { path = "generated/geometry_msgs", optional = true }
+sensor_msgs = { path = "generated/sensor_msgs", optional = true }
+nav_msgs = { path = "generated/nav_msgs", optional = true }
+tf2_msgs = { path = "generated/tf2_msgs", optional = true }
 
 [build-dependencies]
-micro-xrce-dds-codegen = { path = "external/micro_xrce_dds_rs/codegen" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
-[dev-dependencies]
+[target.'cfg(all(target_arch = "arm", target_os = "none"))'.dev-dependencies]
 defmt-test = "0.4"
 
 [[test]]
 name = "rover_math"
 harness = false
+required-features = ["embassy"]
 
 # cargo build/run
 [profile.dev]
@@ -101,10 +110,12 @@ codegen-units = 1
 debug = true
 debug-assertions = true
 incremental = false
-opt-level = 0
+# Generic dependency code is monomorphized in this crate. At opt-level=0,
+# Rpc::decode alone allocates 612,708 stack bytes on thumbv6m-none-eabi.
+opt-level = 2
 overflow-checks = true
 
-# Optimize ALL dependencies at opt-level=2 (examples/src stay at opt-level=0).
+# Keep dependency code optimized as well as application monomorphizations.
 # Reasons:
 #   1. micropb-generated CtrlMsg::decode() has 64 oneof match arms.
 #      At opt-level=0 the compiler doesn't reuse stack slots → ~96 KB.
@@ -126,6 +137,9 @@ opt-level = 3
 overflow-checks = false
 
 [patch.crates-io]
+embassy-futures = { path = "external/embassy/embassy-futures" }
+embassy-sync = { path = "external/embassy/embassy-sync" }
+embassy-time = { path = "external/embassy/embassy-time" }
 embassy-net-driver = { path = "external/embassy/embassy-net-driver" }
 embassy-net-driver-channel = { path = "external/embassy/embassy-net-driver-channel" }
 embassy-time-driver = { path = "external/embassy/embassy-time-driver" }

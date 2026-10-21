@@ -53,7 +53,7 @@ fn parse_addr(addr: &str) -> ([u8; 4], u16) {
     let mut count = 0usize;
     let mut tmp = ip_str;
     while let Some(dot) = tmp.find('.') {
-        assert!(count < 4, "MICRO_ROS_AGENT_ADDR: too many IP octets");
+        assert!(count < 3, "MICRO_ROS_AGENT_ADDR: too many IP octets");
         octets[count] =
             parse_u8(&tmp[..dot]).expect("MICRO_ROS_AGENT_ADDR: invalid IP octet (0–255)");
         count += 1;

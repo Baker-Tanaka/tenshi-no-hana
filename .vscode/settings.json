@@ -19,8 +19,7 @@
     "/opt/ros/jazzy/lib/python3.12/site-packages"
   ],
   "rust-analyzer.cargo.features": [
-    "wifi",
-    "sensor"
+    "wifi"
   ],
   "rust-analyzer.cargo.target": "thumbv6m-none-eabi",
   "rust-analyzer.check.allTargets": false

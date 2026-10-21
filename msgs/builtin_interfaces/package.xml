@@ -5,4 +5,9 @@
   <description>Vendored upstream subset for codegen.</description>
   <maintainer email="dev@example.com">tenshi-no-hana</maintainer>
   <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>rosidl_generator_microxrcedds</buildtool_depend>
+  <build_depend>rosidl_cmake</build_depend>
+  <member_of_group>rosidl_interface_packages</member_of_group>
+  <export><build_type>ament_cmake</build_type></export>
 </package>

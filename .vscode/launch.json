@@ -14,6 +14,7 @@
       "remoteServerMode": false,
       "speed": 4000,
       "chip": "RP2040",
+      "probe": "2e8a:106b",
       "flashingConfig": {
         "flashingEnabled": true,
         "haltAfterReset": true,

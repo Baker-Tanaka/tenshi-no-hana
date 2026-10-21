@@ -1,21 +1,22 @@
 use defmt::{info, warn};
 use embassy_executor::Spawner;
-use embassy_net::tcp::TcpSocket;
+use embassy_futures::{
+    join::join,
+    select::{select, Either},
+};
 use embassy_net::{DhcpConfig, Runner as NetRunner, StackResources};
 use embassy_net_esp_hosted_mcu::{
-    self, BufferType, EspConfig, NetDriver, Runner as EspRunner, SpiInterface, State,
-    MAX_SPI_BUFFER_SIZE,
+    self, BufferType, Control, EspConfig, EspHostedEvents, NetDriver, Runner as EspRunner,
+    SpiInterface, State, MAX_SPI_BUFFER_SIZE,
 };
 use embassy_ros::{
-    transport::{
-        embassy_net::{
-            client_key, Agent, AgentConfig, ConnectFailureKind, Driver, RuntimeConfig, TcpBuffers,
-        },
-        ConnectionTask,
+    transport::embassy_net::{
+        client_key, Agent, AgentConfig, ConnectFailureKind, RuntimeConfig, TcpBuffers,
     },
     Context,
 };
 use embassy_rp::gpio::{Input, Output};
+use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
 use static_cell::StaticCell;
 
@@ -26,42 +27,37 @@ use crate::{
 
 type SpiInterfaceType = SpiInterface<WifiSpi, Input<'static>>;
 type EspHostedRunner = EspRunner<'static, SpiInterfaceType, Output<'static>>;
-type XrceDriver = Driver<TcpSocket<'static>>;
 
 const WIFI_RETRY_SECS: u64 = 5;
-const DHCP_POLL_MS: u64 = 500;
 const AGENT_RETRY_SECS: u64 = 5;
 
 static ESP_STATE: StaticCell<State> = StaticCell::new();
 static STACK_RESOURCES: StaticCell<StackResources<4>> = StaticCell::new();
+static WIFI_EVENTS: StaticCell<Signal<NoopRawMutex, EspHostedEvents>> = StaticCell::new();
 #[embassy_executor::task]
 pub(crate) async fn run(spawner: Spawner, context: Context, wifi: Wifi, config: AppConfig) {
-    let stack = match start_wifi(spawner, wifi, &config).await {
-        Ok(stack) => stack,
-        Err(error) => {
-            warn!(
-                "[wifi] initialization failed: {:?}; sensor/control tasks remain active",
-                defmt::Debug2Format(&error)
-            );
-            return;
-        }
-    };
-    let (connection, driver) = connect_agent(context, stack, &config).await;
-    info!("[microros] runtime started");
-    if let Err(error) = connection.run_with_driver(driver).await {
-        warn!("[embassy_ros] Agent connection stopped: {}", error);
-    }
+    let events = WIFI_EVENTS.init(Signal::new());
+    let (stack, control) = start_wifi(spawner, wifi, events).await;
+    join(
+        maintain_wifi(control, stack, events, &config),
+        maintain_agent(context, stack, &config),
+    )
+    .await;
 }
 
 async fn start_wifi(
     spawner: Spawner,
     wifi: Wifi,
-    config: &AppConfig,
-) -> Result<embassy_net::Stack<'static>, embassy_net_esp_hosted_mcu::Error> {
+    events: &'static Signal<NoopRawMutex, EspHostedEvents>,
+) -> (embassy_net::Stack<'static>, Control<'static>) {
     let interface = SpiInterface::new(wifi.spi, wifi.handshake, wifi.data_ready);
-    let (net_device, mut control, esp_runner) =
-        embassy_net_esp_hosted_mcu::new(ESP_STATE.init(State::new()), interface, wifi.reset, None)
-            .await;
+    let (net_device, control, esp_runner) = embassy_net_esp_hosted_mcu::new(
+        ESP_STATE.init(State::new()),
+        interface,
+        wifi.reset,
+        Some(events),
+    )
+    .await;
     spawner.spawn(esp_hosted_task(esp_runner).unwrap());
 
     let (stack, net_runner) = embassy_net::new(
@@ -72,26 +68,65 @@ async fn start_wifi(
     );
     spawner.spawn(net_task(net_runner).unwrap());
 
-    info!("[wifi] connecting to \"{}\"...", config.wifi_ssid);
-    control
-        .init(EspConfig {
-            static_rx_buf_num: 10,
-            dynamic_rx_buf_num: 32,
-            tx_buf_type: BufferType::Dynamic,
-            static_tx_buf_num: 0,
-            dynamic_tx_buf_num: 32,
-            rx_mgmt_buf_type: BufferType::Dynamic,
-            rx_mgmt_buf_num: 20,
-        })
-        .await?;
+    (stack, control)
+}
+
+async fn maintain_wifi(
+    mut control: Control<'static>,
+    stack: embassy_net::Stack<'static>,
+    events: &'static Signal<NoopRawMutex, EspHostedEvents>,
+    config: &AppConfig,
+) {
+    let mut initialized = false;
     loop {
+        if !initialized {
+            info!("[wifi] waiting for ESP-hosted initialization");
+            match control
+                .init(EspConfig {
+                    static_rx_buf_num: 10,
+                    dynamic_rx_buf_num: 32,
+                    tx_buf_type: BufferType::Dynamic,
+                    static_tx_buf_num: 0,
+                    dynamic_tx_buf_num: 32,
+                    rx_mgmt_buf_type: BufferType::Dynamic,
+                    rx_mgmt_buf_num: 20,
+                })
+                .await
+            {
+                Ok(()) => initialized = true,
+                Err(error) => {
+                    warn!(
+                        "[wifi] initialization failed: {:?}",
+                        defmt::Debug2Format(&error)
+                    );
+                    if let Err(error) = control.reset_device().await {
+                        warn!("[wifi] reset failed: {:?}", defmt::Debug2Format(&error));
+                    }
+                    Timer::after(Duration::from_secs(WIFI_RETRY_SECS)).await;
+                    continue;
+                }
+            }
+        }
+        events.reset();
+        info!("[wifi] connecting to \"{}\"...", config.wifi_ssid);
         match control
             .connect(config.wifi_ssid, config.wifi_password)
             .await
         {
             Ok(true) => {
                 info!("[wifi] connected");
-                break;
+                // The control event precedes the network runner's link-state update.
+                stack.wait_link_up().await;
+                match select(events.wait(), stack.wait_link_down()).await {
+                    Either::First(EspHostedEvents::Deadline) => {
+                        warn!("[wifi] ESP heartbeat stopped; resetting");
+                        if let Err(error) = control.reset_device().await {
+                            warn!("[wifi] reset failed: {:?}", defmt::Debug2Format(&error));
+                        }
+                        initialized = false;
+                    }
+                    _ => warn!("[wifi] link lost; reconnecting"),
+                }
             }
             Ok(false) => warn!("[wifi] association failed; retrying"),
             Err(error) => warn!(
@@ -101,29 +136,40 @@ async fn start_wifi(
         }
         Timer::after(Duration::from_secs(WIFI_RETRY_SECS)).await;
     }
-    while stack.config_v4().is_none() {
-        Timer::after(Duration::from_millis(DHCP_POLL_MS)).await;
-    }
-    info!("[microros] DHCP OK");
-    Ok(stack)
 }
 
-async fn connect_agent(
-    context: Context,
-    stack: embassy_net::Stack<'static>,
-    config: &AppConfig,
-) -> (ConnectionTask, XrceDriver) {
+async fn maintain_agent(context: Context, stack: embassy_net::Stack<'static>, config: &AppConfig) {
     static TCP_BUFFERS: StaticCell<TcpBuffers> = StaticCell::new();
     let mut socket = TCP_BUFFERS.init(TcpBuffers::new()).socket(stack);
     let agent = Agent::new(context);
-    let connection = AgentConfig::new(
+    let connection_config = AgentConfig::new(
         config.agent_endpoint(),
         RuntimeConfig::new(0x81, client_key!()),
     );
 
     loop {
-        match agent.connect(socket, connection).await {
-            Ok(connected) => return connected,
+        stack.wait_link_up().await;
+        stack.wait_config_up().await;
+        info!("[microros] DHCP OK; connecting to Agent");
+        match agent.connect(socket, connection_config).await {
+            Ok((connection, mut driver)) => {
+                info!("[microros] runtime started");
+                let network_lost = select(stack.wait_link_down(), stack.wait_config_down());
+                match select(network_lost, connection.run_with_driver(&mut driver)).await {
+                    Either::First(_) => warn!("[microros] network lost; reconnecting"),
+                    Either::Second(Err(error)) => {
+                        warn!(
+                            "[embassy_ros] Agent connection stopped: {}; retrying",
+                            error
+                        )
+                    }
+                    Either::Second(Ok(())) => {
+                        warn!("[embassy_ros] Agent connection ended; retrying")
+                    }
+                }
+                socket = driver.into_inner();
+                socket.abort();
+            }
             Err(failure) => {
                 if matches!(
                     failure.kind,
@@ -143,6 +189,7 @@ async fn connect_agent(
                     defmt::Debug2Format(&failure.kind)
                 );
                 socket = failure.socket;
+                socket.abort();
             }
         }
         Timer::after(Duration::from_secs(AGENT_RETRY_SECS)).await;

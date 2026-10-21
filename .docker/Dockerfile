@@ -19,10 +19,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 	jq \
 	libudev-dev \
 	pkg-config \
+	ros-jazzy-ament-cmake-python \
 	ros-jazzy-nav2-bringup \
 	ros-jazzy-navigation2 \
 	ros-jazzy-rviz2 \
 	ros-jazzy-ros2interface \
+	ros-jazzy-rosidl-adapter \
+	ros-jazzy-rosidl-cmake \
+	ros-jazzy-rosidl-parser \
 	ros-jazzy-tf2-tools \
 	ros-jazzy-xacro \
 	python3-colcon-common-extensions \

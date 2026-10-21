@@ -13,19 +13,18 @@
 > English README is available at `README.md`.
 
 ## 概要
-天使の鼻は、Baker link. Dev Rev.1 (RP2040) 基板を中心に構成された 2輪ローバーです。蒸留所や熟成庫を巡回し、エタノール蒸気濃度を測定し、磁界センサーで樽内の液面の変化を推定します。
+天使の鼻は、Baker link. Dev Rev.1 (RP2040) 基板を中心に構成された 2輪ローバーです。現行の対象は ROS 2 からの走行制御、IMU・超音波測距、open-loop odometry です。蒸留所巡回、エタノール計測、磁界による液面推定は将来拡張であり、現在のファームウェアには実装していません。
 
 本プロジェクトは以下を組み合わせています。
-- **micro_xrce_dds_rs** と **micro-ROS Agent** による ROS2 互換メッセージング
-- **XIAO-ESP32-C3 の Wi-Fi / ESP-hosted MCU**
+- **ESP32-C6 の Wi-Fi / ESP-hosted MCU（slave firmware 2.12.9）**
 - **Embassy-rs no_std 非同期ランタイム**
 - **micro_xrce_dds_rs** と **micro-ROS Agent** による ROS2 互換メッセージング
 
 ## 主な特徴
-- エタノール蒸気を検知し「天使の分け前」を間接的に監視
-- 浮遊磁石＋磁界検出で樽内液面を非接触測定
-- 6軸 IMU (ICM-20602) による odom / 姿勢推定
-- XIAO-ESP32-C3 で Wi-Fi 通信を実現
+- ROS 2 速度指令と 500 ms のモーター watchdog
+- 6軸 IMU (ICM-20602) の加速度・角速度配信（姿勢融合は行わない）
+- HC-SR04 測距と車輪指令速度による open-loop odometry
+- ESP32-C6 で Wi-Fi 通信を実現
 - 低コストかつ no_std 組み込み設計
 
 ## ハードウェア構成
@@ -48,6 +47,10 @@
 
 ![](docs/schematics/tenshi_no_hana_wiring.svg)
 
+> 図と後半の C3 用ピン表は、過去の XIAO ESP32-C3 設計です。
+> 現行実機は ESP32-C6 / ESP-Hosted MCU slave 2.12.9 です。
+> 実配線には [確認済みの現行 GPIO 表](docs/DESIGN.md#ピンと電源)を使用してください。
+
 ### 電源系統
 
 ```
@@ -64,7 +67,7 @@
 
 RP2040 の GPIO は **5V 非耐圧**。以下の 2 信号は **10kΩ + 15kΩ の分圧**（5V → 3.0V）が必須:
 
-- **MQ-3B AOUT → GP26 (ADC0)** — AOUT は最大 ~5V。電源投入後 約2分の予熱が必要（ファームウェアが予熱中の publish を抑制）。
+- **MQ-3B AOUT → GP26 (ADC0)** — 将来のセンサーノード用。ADC 取得・予熱処理は未実装。AOUT は最大 ~5V。
 - **HC-SR04 Echo → GP3** — Echo は 5V パルスを出力。
 
 ### モーター駆動
@@ -74,12 +77,54 @@ RP2040 の GPIO は **5V 非耐圧**。以下の 2 信号は **10kΩ + 15kΩ の
 （DRV8835 は最大 1.5A/ch。VM 直近にバルクコンデンサ推奨）。
 
 ## 無線通信
-- **XIAO-ESP32-C3** を ESP-Hosted MCU として使用
+- **ESP32-C6** を ESP-Hosted MCU slave **2.12.9** として使用
 - `external/embassy` サブモジュールに含まれる `embassy-net-esp-hosted` を利用
 
 ## ソフトウェア構成
 - `micro_xrce_dds_rs` と micro-ROS Agent
-- カスタムメッセージ `angel_nose_msgs`（エタノール濃度、液面高さ、環境データ）
+- 生成済みの `no_std` 標準 ROS メッセージ crate。ファームウェアに C の RMW ライブラリはリンクしない
+
+## ファームウェアのビルド
+
+```sh
+git submodule update --init --recursive
+cp wifi_config.json.example wifi_config.json
+# wifi_config.json に SSID、パスワード、Agent の IPv4 アドレスとポートを設定する。
+cargo build --locked
+cargo build --release --locked
+```
+
+ツールチェーンは [rust-toolchain.toml](rust-toolchain.toml) で固定します。
+`flip-link` が必要です（開発コンテナには導入済み）。
+Wi-Fi 設定は commit しないでください。JSON、SSID のサイズ、Agent の接続先が
+不正な場合は、代替値を使わずビルドエラーにします。
+現行 ESP-hosted fork のパスワード上限は UTF-8 で 32 バイトです。
+超過時は接続を無限に再試行せず、ビルド時にエラーにします。
+既定 feature は `wifi` で、ファームウェアの binary に必須です。
+debug ビルドもアプリ・依存とも `opt-level = 2` を維持してください。
+依存だけの最適化ではアプリで実体化される protobuf デコーダの巨大な
+スタック確保を防げません。debug シンボルと assertions は有効のままです。
+
+ボードなしで走行計算を検証できます。
+
+```sh
+cargo test --lib --no-default-features --target x86_64-unknown-linux-gnu
+```
+
+[メッセージ定義](msgs/)やデバイス容量を変更した場合は、ROS Jazzy 開発コンテナで
+再生成します。
+
+```sh
+bash external/micro_xrce_dds_rs/codegen/regenerate.sh
+# 入力・生成器・生成結果の整合を、ファイルを書き換えずに確認する:
+bash external/micro_xrce_dds_rs/codegen/regenerate.sh --check
+```
+
+ament 連携とテストは[生成器の説明](external/micro_xrce_dds_rs/codegen/README.md)を
+参照してください。入力と生成結果を一緒にバージョン管理します。
+submodule 内の変更は、そのリポジトリで先に commit / push してから親の参照を
+更新する必要があります。親だけ commit しても submodule 内の未コミット変更は
+配布されません。
 
 ## ファームウェア構成
 
@@ -136,7 +181,10 @@ entity 準備、routing、時刻同期はフレームワークが担当し、
 ノードは取得時点で `context.clock().now()` を使います。初回同期前は従来どおり
 起動後の単調増加時刻を使用しますが、これは Unix 時刻ではありません。
 接続リトライ方針、センサー設定、モーター制限、ノード構成はアプリ側に残します。
-通信切断はログに出しますが、この構成には自動再接続は実装していません。
+通信切断はログに出し、アプリが Agent への再接続を試行します。
+Wi-Fi 切断時は再接続し、ESP-hosted の heartbeat は通知を受けて扱います
+（ドライバ既定の timeout 時 panic は使いません）。
+ハードウェアの初期化には応答可能な slave が必要です。
 
 共通の TCP 接続・XRCE handshake は、任意機能
 `embassy_ros::transport::embassy_net::Agent` を使います。アプリ側は接続先、静的
@@ -144,13 +192,19 @@ entity 準備、routing、時刻同期はフレームワークが担当し、
 起動中の接続・handshake 失敗はログを出して再試行します。
 ボード固有の Wi-Fi 初期化は `network.rs` に残します。
 
-ROS `.msg` 生成はホスト専用の
-[`micro-xrce-dds-codegen`](external/micro_xrce_dds_rs/codegen/README.md)
-を build dependency として使います。アプリの build script は Wi-Fi 設定と
-入力メッセージ・固定容量の指定を担当します。文字列は 32 バイト、
-sequence は `/tf` が一つの transform を送る構成に合わせて一要素です。
-生成された Header には
-`set_stamp` を提供します。公開 Publisher は非同期通信を待たない keep-last
+ROS メッセージはホスト専用の
+[生成器](external/micro_xrce_dds_rs/codegen/README.md)で公式 ROS IDL
+adapter / parser を使って生成します。
+[ros2_rust](https://github.com/ros2-rust/ros2_rust/blob/main/docs/message-generation.md)
+に従い、生成器と実行時サポートを分離します。
+[生成済みパッケージ crate](generated/)をバージョン管理し、デバイス側は
+`no_std` 型と CDR を使い、C の RMW には依存しません。
+無制限フィールドのデバイス内容量は文字列 32 バイト、
+sequence は `/tf` の一つの transform に合わせて一要素です。
+定義・容量変更時は再生成が必要ですが、通常の Cargo build に ROS / Python は不要です。
+アプリの build script は Wi-Fi 設定の検証・埋め込みとリンカ検索パスのみを扱います。
+生成された Header には `set_stamp` を提供します。
+公開 Publisher は非同期通信を待たない keep-last
 方式で、成功はデバイス内の受理を意味します。Agent 配送 ACK やイベントの
 確実な配送を保証する API ではありません。
 
@@ -203,11 +257,16 @@ HC-SR04 の検出範囲は機体前方の狭い範囲だけです。近距離障
 [docs/DESIGN.md](docs/DESIGN.md) をハードウェアとシステム設計の正本として参照してください。
 
 ## 今後の拡張
+- MQ-3B の取得・校正と磁界による液面測定
 - 車輪エンコーダまたは外部自己位置推定の追加
 - 自律マッピングと複数ローバー対応
 
-## ESP32-Hosted (ESP32-C3) ピン割り当て
-現在の `sdkconfig` に基づくピン配置です。
+## 旧設計の ESP32-Hosted (ESP32-C3) ピン割り当て
+
+以下は旧設計の記録であり、現行 ESP32-C6 の設定ではありません。
+[現行 GPIO 表](docs/DESIGN.md#ピンと電源)を参照してください。
+以下は設計上のピン配置です。通信実績のある ESP-hosted slave のバージョンと
+`sdkconfig` は未記録のため、slave を再ビルドする前に実機と照合してください。
 
 > 参考: [Seeed Studio XIAO ESP32C3 Getting Started](https://wiki.seeedstudio.com/XIAO_ESP32C3_Getting_Started/)
 

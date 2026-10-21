@@ -47,7 +47,7 @@ pub(crate) async fn node(
         {
             Either3::First(Ok(sample)) => {
                 let status = context.connection().status();
-                if epoch != status.epoch {
+                if epoch != status.epoch || !status.is_ready() {
                     epoch = status.epoch;
                     stop(&mut motors);
                     stopped = true;

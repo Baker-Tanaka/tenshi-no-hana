@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.16)
+project(builtin_interfaces)
+find_package(ament_cmake REQUIRED)
+find_package(rosidl_cmake REQUIRED)
+find_package(rosidl_generator_microxrcedds REQUIRED)
+rosidl_generate_interfaces(${PROJECT_NAME} "msg/Duration.msg" "msg/Time.msg")
+ament_package()
