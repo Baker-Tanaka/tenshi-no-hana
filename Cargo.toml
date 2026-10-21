@@ -99,6 +99,14 @@ serde_json = "1"
 [target.'cfg(all(target_arch = "arm", target_os = "none"))'.dev-dependencies]
 defmt-test = "0.4"
 
+[[example]]
+name = "sensor_check"
+required-features = ["embassy"]
+
+[[example]]
+name = "motor_check"
+required-features = ["embassy"]
+
 [[test]]
 name = "rover_math"
 harness = false

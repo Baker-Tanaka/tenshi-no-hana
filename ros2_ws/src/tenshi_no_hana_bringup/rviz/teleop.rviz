@@ -1,0 +1,64 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Background Color: 238; 240; 236
+    Fixed Frame: base_link
+    Frame Rate: 30
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Cell Size: 0.25
+    - Class: rviz_default_plugins/RobotModel
+      Name: Rover
+      Enabled: true
+      Description Source: Topic
+      Description Topic:
+        Value: /robot_description
+        Durability Policy: Transient Local
+    - Class: rviz_default_plugins/TF
+      Name: Sensor frames
+      Enabled: true
+      Show Axes: true
+      Show Names: true
+    - Class: rviz_default_plugins/Range
+      Name: Front ultrasonic
+      Enabled: true
+      Topic:
+        Value: /ultrasonic/front
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+      Color: 225; 90; 35
+      Buffer Length: 1
+    - Class: rviz_imu_plugin/Imu
+      Name: IMU raw acceleration (includes gravity)
+      Enabled: true
+      Topic:
+        Value: /imu/data
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+      fixed_frame_orientation: false
+      Box properties:
+        Enable box: false
+      Axes properties:
+        Enable axes: false
+      Acceleration properties:
+        Enable acceleration: true
+        Derotate acceleration: false
+        Acc. vector scale: 0.05
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 1.5
+      Pitch: 0.5
+      Yaw: 0.8
+Window Geometry:
+  Width: 1280
+  Height: 800

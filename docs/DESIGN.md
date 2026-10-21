@@ -91,6 +91,8 @@ ROS のメッセージ定義と同じ DDS 型名・CDR ワイヤー表現を用�
 ## モーター制御の契約
 
 - DRV8835 は PH/EN モード。MODE を VCC へ接続する。
+- 暫定運用として、負の車輪指令は 0 に切り上げる（前進のみ）。
+  後退・その場旋回は現在無効。
 - 車輪間隔は 0.13 m、100% duty 換算の最大車輪速度は 0.4 m/s。
   実機校正前の値であり、実測値に合わせる必要がある。
 - duty の絶対値を 0.6 以下に制限する。
@@ -101,6 +103,20 @@ ROS のメッセージ定義と同じ DDS 型名・CDR ワイヤー表現を用�
   届くまで停止する。
 - 通信障害後もローカル計測は継続する。ただし MCU 自体の故障を
   ソフトウェア watchdog の保証範囲に含めない。
+
+## 手動操作と可視化
+
+`teleop.launch.py` は robot_state_publisher と RViz2 のみを起動し、
+Nav2 の速度出力と手動指令を競合させない。キーボードは別の対話端末で
+`teleop_twist_keyboard` を起動し、非 stamped の `Twist` を `/cmd_vel` へ送る。
+Jazzy 版はキー入力ごとの送信なので、キーリピートと本体の 500 ms watchdog
+を組み合わせる。起動手順と推奨速度は日本語 README を参照する。
+
+専用 RViz 設定 `teleop.rviz` は `base_link` を固定フレームとし、
+`/ultrasonic/front` と `/imu/data` の生加速度（重力込み）を表示する。
+IMU の orientation は未推定なので、rviz_imu_plugin の姿勢表示と
+加速度の orientation による補正は無効にする。
+この経路は通常ファームウェア、Wi-Fi、Agent の接続を必要とする。
 
 ## ピンと電源
 

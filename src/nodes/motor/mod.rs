@@ -6,7 +6,7 @@ use embassy_time::{Duration, Instant, Timer};
 use crate::ros_msgs;
 use state::{publish_motion_state, CMD_VEL_TIMEOUT_MS};
 use tenshi_no_hana::{
-    diff_drive::{twist_to_wheels, DiffDriveConfig},
+    diff_drive::{forward_only_twist_to_wheels, DiffDriveConfig},
     drivers::drv8835::Drv8835,
 };
 
@@ -28,7 +28,7 @@ pub(crate) async fn node(
     #[subscription(topic = &CMD_VEL)] mut commands: Subscription<ros_msgs::geometry_msgs::Twist>,
 ) {
     let context = node.context();
-    info!("[motor] task start");
+    info!("[motor] task start (forward-only; reverse commands stop both wheels)");
     let config = DiffDriveConfig::new(WHEEL_SEPARATION_M, MAX_WHEEL_SPEED_MPS);
     let mut connection = defmt::unwrap!(context.connection().watch());
     let mut epoch = connection.current().await.epoch;
@@ -69,9 +69,19 @@ pub(crate) async fn node(
                     stopped = true;
                     continue;
                 }
-                let (left, right) = twist_to_wheels(&config, linear, angular);
-                let left_limited = left * MAX_MOTOR_DUTY_SCALE;
-                let right_limited = right * MAX_MOTOR_DUTY_SCALE;
+                let Some((left, right)) = forward_only_twist_to_wheels(&config, linear, angular) else {
+                    warn!("[motor] reverse wheel requested in forward-only mode, stop");
+                    stop(&mut motors);
+                    stopped = true;
+                    continue;
+                };
+                let left_limited = forward_only(left * MAX_MOTOR_DUTY_SCALE);
+                let right_limited = forward_only(right * MAX_MOTOR_DUTY_SCALE);
+                if left_limited == 0.0 && right_limited == 0.0 {
+                    stop(&mut motors);
+                    stopped = true;
+                    continue;
+                }
                 motors.set_left(left_limited);
                 motors.set_right(right_limited);
                 let left_speed = left_limited * MAX_WHEEL_SPEED_MPS;
@@ -82,7 +92,7 @@ pub(crate) async fn node(
                 );
                 stopped = false;
                 info!(
-                    "[/cmd_vel] lx={} az={} -> limited l={} r={}",
+                    "[/cmd_vel] lx={} az={} -> fwd-only l={} r={}",
                     linear, angular, left_limited, right_limited
                 );
             }
@@ -115,6 +125,10 @@ pub(crate) async fn node(
 fn stop(motors: &mut Motors) {
     motors.stop();
     publish_motion_state(0.0, 0.0);
+}
+
+fn forward_only(value: f32) -> f32 {
+    value.max(0.0)
 }
 
 pub(crate) mod state;

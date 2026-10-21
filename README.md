@@ -21,11 +21,52 @@ This project combines:
 - **micro_xrce_dds_rs** with a **micro-ROS Agent** bridge
 
 ## Key features
-- ROS 2 velocity commands with a 500 ms motor watchdog
+- ROS 2 velocity commands with a 500 ms motor watchdog (currently forward-only)
 - 6-axis IMU (ICM-20602) acceleration and angular velocity (no attitude fusion)
 - HC-SR04 ranging and open-loop wheel-command odometry
 - Wi-Fi communication via ESP32-C6
 - Low-cost and lightweight no_std embedded design
+
+## Keyboard teleoperation and sensor visualization
+
+Use the normal rover firmware, not the autonomous `motor_check` or standalone
+`sensor_check` examples. Wi-Fi and the micro-ROS Agent TCP connection must work;
+sustained network operation is not yet verified.
+
+```sh
+sudo apt-get update
+sudo apt-get install ros-jazzy-teleop-twist-keyboard ros-jazzy-rviz-imu-plugin
+source /opt/ros/jazzy/setup.bash
+cd /tenshi-no-hana/ros2_ws
+colcon build --symlink-install --packages-select tenshi_no_hana_bringup
+source install/setup.bash
+ros2 launch tenshi_no_hana_bringup teleop.launch.py
+```
+
+Run RViz2 in a GUI-capable environment. This manual launch starts no Nav2
+controllers. It displays the rover, ultrasonic range and raw IMU acceleration
+(including gravity) in `base_link`. IMU orientation is deliberately disabled:
+the firmware does not estimate attitude. For angular velocity values use
+`ros2 topic echo /imu/data --field angular_velocity`.
+
+In a separate interactive terminal:
+
+```sh
+source /opt/ros/jazzy/setup.bash
+source /tenshi-no-hana/ros2_ws/install/setup.bash
+ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args \
+  -p stamped:=false -p speed:=0.1 -p turn:=0.5 \
+  --remap cmd_vel:=/cmd_vel
+```
+
+Raise the wheels first. Focus the keyboard terminal: `i` drives forward,
+`u`/`o` turn while moving forward, `k` stops. Jazzy publishes once per key input:
+hold the movement key and configure OS key repeat faster than 500 ms.
+The firmware stops after 500 ms without fresh commands; the initial OS
+key-repeat delay may cause a brief stop.
+Forward-only mode rejects any command requiring a reversing wheel, including
+reverse and in-place rotation; increasing turn speed can also reject arcs.
+Do not run Nav2 or another `/cmd_vel` publisher concurrently.
 
 ## Hardware bill of materials
 Estimated Japan-focused pricing as of April 2026.

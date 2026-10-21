@@ -37,6 +37,19 @@ pub fn twist_to_wheels(cfg: &DiffDriveConfig, linear_x: f32, angular_z: f32) -> 
     (clamp_unit(v_l * inv_max), clamp_unit(v_r * inv_max))
 }
 
+/// Reject the whole command if either wheel would need to reverse.
+pub fn forward_only_twist_to_wheels(
+    cfg: &DiffDriveConfig,
+    linear_x: f32,
+    angular_z: f32,
+) -> Option<(f32, f32)> {
+    if !linear_x.is_finite() || !angular_z.is_finite() {
+        return None;
+    }
+    let wheels = twist_to_wheels(cfg, linear_x, angular_z);
+    (wheels.0 >= 0.0 && wheels.1 >= 0.0).then_some(wheels)
+}
+
 fn clamp_unit(x: f32) -> f32 {
     if x.is_nan() {
         0.0
@@ -79,5 +92,28 @@ mod tests {
         let (l, r) = twist_to_wheels(&cfg, -10.0, 0.0);
         approx(l, -1.0);
         approx(r, -1.0);
+    }
+
+    #[test]
+    fn forward_only_accepts_forward_arcs_and_stop() {
+        let cfg = DiffDriveConfig::new(0.2, 1.0);
+        assert_eq!(forward_only_twist_to_wheels(&cfg, 0.0, 0.0), Some((0.0, 0.0)));
+        let (l, r) = forward_only_twist_to_wheels(&cfg, 0.2, 1.0).unwrap();
+        approx(l, 0.1);
+        approx(r, 0.3);
+        let (l, r) = forward_only_twist_to_wheels(&cfg, 0.1, 1.0).unwrap();
+        approx(l, 0.0);
+        approx(r, 0.2);
+    }
+
+    #[test]
+    fn forward_only_rejects_reverse_rotation_and_invalid_commands() {
+        let cfg = DiffDriveConfig::new(0.2, 1.0);
+        for (linear, angular) in [
+            (-0.1, 0.0), (0.0, 1.0), (0.0, -1.0),
+            (0.05, 1.0), (f32::NAN, 0.0), (0.0, f32::INFINITY),
+        ] {
+            assert_eq!(forward_only_twist_to_wheels(&cfg, linear, angular), None);
+        }
     }
 }

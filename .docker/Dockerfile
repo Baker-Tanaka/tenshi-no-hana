@@ -23,6 +23,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 	ros-jazzy-nav2-bringup \
 	ros-jazzy-navigation2 \
 	ros-jazzy-rviz2 \
+	ros-jazzy-rviz-imu-plugin \
+	ros-jazzy-teleop-twist-keyboard \
 	ros-jazzy-ros2interface \
 	ros-jazzy-rosidl-adapter \
 	ros-jazzy-rosidl-cmake \

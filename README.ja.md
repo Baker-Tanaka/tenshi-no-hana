@@ -21,7 +21,7 @@
 - **micro_xrce_dds_rs** と **micro-ROS Agent** による ROS2 互換メッセージング
 
 ## 主な特徴
-- ROS 2 速度指令と 500 ms のモーター watchdog
+- ROS 2 速度指令と 500 ms のモーター watchdog（現在は前進のみ）
 - 6軸 IMU (ICM-20602) の加速度・角速度配信（姿勢融合は行わない）
 - HC-SR04 測距と車輪指令速度による open-loop odometry
 - ESP32-C6 で Wi-Fi 通信を実現
@@ -234,6 +234,51 @@ Nav2 や RViz などホスト側 ROS 2 プロセスを起動する `ros2 launch`
 | 配信 | `/tf`               | `tf2_msgs/TFMessage`  | `odom` から `base_link` |
 
 メッセージ時刻は micro-ROS Agent と同期します。姿勢推定は行わず、車輪エンコーダがないためオドメトリは open-loop です。高精度な Nav2 運用には外部自己位置推定を併用してください。
+
+## キーボード操作とセンサー可視化（手動操作）
+
+通常ファームウェアを使用してください。`sensor_check` / `motor_check` の
+単体試験ファームウェアには ROS 通信機能がありません。
+Wi-Fi と micro-ROS Agent（TCP 8888）の接続が必要です。
+現時点で通信の継続安定性は未確認です。
+
+コンテナを再ビルドするか、ROS ホストで依存パッケージを追加します。
+
+```sh
+sudo apt-get update
+sudo apt-get install ros-jazzy-teleop-twist-keyboard ros-jazzy-rviz-imu-plugin
+source /opt/ros/jazzy/setup.bash
+cd /tenshi-no-hana/ros2_ws
+colcon build --symlink-install --packages-select tenshi_no_hana_bringup
+source install/setup.bash
+ros2 launch tenshi_no_hana_bringup teleop.launch.py
+```
+
+RViz2 が表示できる GUI 環境で実行してください。`base_link` 基準で機体、
+超音波距離、IMU の生加速度ベクトル（重力込み）を表示します。
+姿勢推定がないため IMU の姿勢表示は無効です。角速度の数値は
+`ros2 topic echo /imu/data --field angular_velocity` で確認できます。
+
+別の対話端末で、セットアップを読み込んでキーボード操作を起動します。
+
+```sh
+source /opt/ros/jazzy/setup.bash
+source /tenshi-no-hana/ros2_ws/install/setup.bash
+ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args \
+  -p stamped:=false -p speed:=0.1 -p turn:=0.5 \
+  --remap cmd_vel:=/cmd_vel
+```
+
+- 最初は車輪を浮かせ、端末にフォーカスして `i`（前進）、`u` / `o`
+  （前進しながら旋回）、`k`（停止）を確認してください。
+- Jazzy 版はキー入力ごとに指令を送ります。移動キーを押し続け、
+  OS のキーリピート間隔を 500 ms 未満にしてください。入力・通信が途絶えると
+  本体の 500 ms watchdog が停止します。キーリピート開始前に一度停止する場合があります。
+- 現在は前進専用です。後退・その場旋回・片輪逆転が必要な指令は
+  両輪停止として扱います。速度や旋回速度を上げると `u` / `o` も拒否され得ます。
+- Nav2 の `bringup.launch.py` や他の `/cmd_vel` 配信元を同時に起動しないでください。
+- 最後に書き込んだものが自動で動く `motor_check` の場合は、先に
+  通常ファームウェアを書き込んでください。
 
 ## RViz2・Nav2 の起動
 

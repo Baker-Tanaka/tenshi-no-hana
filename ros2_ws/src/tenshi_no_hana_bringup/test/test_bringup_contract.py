@@ -84,3 +84,34 @@ def test_velocity_limits_are_below_firmware_limits():
     assert planner["max_vel_theta"] <= 1.0
     smoother = params["velocity_smoother"]["ros__parameters"]
     assert smoother["velocity_timeout"] < 0.5
+
+
+def test_teleop_launch_has_no_autonomous_command_source():
+    import importlib.util
+    from unittest.mock import patch
+
+    from launch_ros.actions import Node
+
+    path = PACKAGE_ROOT / "launch" / "teleop.launch.py"
+    spec = importlib.util.spec_from_file_location("teleop_launch", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    with patch.object(module, "get_package_share_directory", return_value=str(PACKAGE_ROOT)):
+        description = module.generate_launch_description()
+    nodes = [action for action in description.entities if isinstance(action, Node)]
+    assert [node.node_package for node in nodes] == ["robot_state_publisher", "rviz2"]
+
+
+def test_teleop_visualizes_raw_acceleration_not_unavailable_orientation():
+    with (PACKAGE_ROOT / "rviz" / "teleop.rviz").open() as stream:
+        config = yaml.safe_load(stream)["Visualization Manager"]
+    assert config["Global Options"]["Fixed Frame"] == "base_link"
+    displays = {display["Class"]: display for display in config["Displays"]}
+    assert displays["rviz_default_plugins/Range"]["Topic"]["Value"] == "/ultrasonic/front"
+    imu = displays["rviz_imu_plugin/Imu"]
+    assert imu["Topic"]["Value"] == "/imu/data"
+    assert not imu["fixed_frame_orientation"]
+    assert not imu["Box properties"]["Enable box"]
+    assert not imu["Axes properties"]["Enable axes"]
+    assert imu["Acceleration properties"]["Enable acceleration"]
+    assert not imu["Acceleration properties"]["Derotate acceleration"]
