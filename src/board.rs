@@ -1,5 +1,6 @@
 use defmt::info;
 use embassy_rp::{
+    adc::{Adc, Blocking as AdcBlocking, Channel as AdcChannel, Config as AdcConfig},
     bind_interrupts, dma,
     gpio::{Input, Level, Output, Pull},
     i2c::{Blocking, Config as I2cConfig, I2c},
@@ -22,6 +23,11 @@ bind_interrupts!(struct Irqs {
 pub(crate) type WifiSpi = ExclusiveDevice<Spi<'static, SPI0, Async>, Output<'static>, Delay>;
 pub(crate) type Imu = I2c<'static, I2C0, Blocking>;
 
+pub(crate) struct AlcoholSensor {
+    pub adc: Adc<'static, AdcBlocking>,
+    pub channel: AdcChannel<'static>,
+}
+
 pub(crate) struct Wifi {
     pub spi: WifiSpi,
     pub handshake: Input<'static>,
@@ -34,9 +40,15 @@ pub(crate) struct Board {
     pub imu: Imu,
     pub range: Hcsr04<'static>,
     pub motors: Drv8835<'static>,
+    pub alcohol: AlcoholSensor,
 }
 
 pub(crate) fn init(p: Peripherals) -> Board {
+    let alcohol = AlcoholSensor {
+        adc: Adc::new_blocking(p.ADC, AdcConfig::default()),
+        channel: AdcChannel::new_pin(p.PIN_28, Pull::None),
+    };
+
     let mut spi_config = SpiConfig::default();
     spi_config.frequency = 10_000_000;
     spi_config.polarity = Polarity::IdleHigh;
@@ -74,5 +86,6 @@ pub(crate) fn init(p: Peripherals) -> Board {
         imu,
         range,
         motors,
+        alcohol,
     }
 }

@@ -203,15 +203,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cortex-m-semihosting"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c23234600452033cc77e4b761e740e02d2c4168e11dbf36ab14a0f58973592b0"
-dependencies = [
- "cortex-m",
-]
-
-[[package]]
 name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -340,29 +331,6 @@ checksum = "214e79c85b13a733762150567c988c580cbf1ecdc07805a0478fe8ca2c8380c7"
 dependencies = [
  "critical-section",
  "defmt 1.2.0",
-]
-
-[[package]]
-name = "defmt-test"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24076cc7203c365e7febfcec15d6667a9ef780bd2c5fd3b2a197400df78f299b"
-dependencies = [
- "cortex-m-rt",
- "cortex-m-semihosting",
- "defmt 1.2.0",
- "defmt-test-macros",
-]
-
-[[package]]
-name = "defmt-test-macros"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe5520fd36862f281c026abeaab153ebbc001717c29a9b8e5ba9704d8f3a879d"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
 ]
 
 [[package]]
@@ -983,12 +951,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
 
 [[package]]
-name = "libm"
-version = "0.2.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
-
-[[package]]
 name = "litrs"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1064,16 +1026,6 @@ checksum = "2396c04036d4672d7e39e42ded922d2024ec74268dc8c06fba6de05633165ee9"
 dependencies = [
  "heapless 0.8.0",
  "num-traits",
-]
-
-[[package]]
-name = "nav_msgs"
-version = "0.0.0"
-dependencies = [
- "geometry_msgs",
- "heapless 0.8.0",
- "micro-xrce-dds-rs",
- "std_msgs",
 ]
 
 [[package]]
@@ -1647,7 +1599,6 @@ dependencies = [
  "cortex-m-rt",
  "defmt 1.2.0",
  "defmt-rtt",
- "defmt-test",
  "embassy-executor",
  "embassy-futures",
  "embassy-net",
@@ -1657,21 +1608,15 @@ dependencies = [
  "embassy-sync 0.8.0",
  "embassy-time",
  "embedded-hal 1.0.0",
- "embedded-hal-async",
  "embedded-hal-bus",
- "embedded-io-async 0.6.1",
  "geometry_msgs",
- "heapless 0.8.0",
- "libm",
  "micro-xrce-dds-rs",
- "nav_msgs",
  "panic-probe",
  "sensor_msgs",
  "serde",
  "serde_json",
  "static_cell",
  "std_msgs",
- "tf2_msgs",
 ]
 
 [[package]]
@@ -1690,15 +1635,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
 dependencies = [
  "winapi-util",
-]
-
-[[package]]
-name = "tf2_msgs"
-version = "0.0.0"
-dependencies = [
- "geometry_msgs",
- "heapless 0.8.0",
- "micro-xrce-dds-rs",
 ]
 
 [[package]]

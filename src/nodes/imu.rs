@@ -2,7 +2,9 @@ use defmt::{info, warn};
 use embassy_ros::{Node, Publisher, Qos, Topic};
 use embassy_time::{Duration, Timer};
 
-use crate::{board::Imu, ros_msgs};
+use crate::board::Imu;
+use geometry_msgs::msg::{Quaternion, Vector3};
+use sensor_msgs::msg::Imu as ImuMessage;
 use tenshi_no_hana::drivers::icm20602;
 
 const FRAME_ID: &str = "imu_link";
@@ -10,13 +12,13 @@ const PERIOD_MS: u64 = 20;
 const SENSOR_RETRY_SECS: u64 = 1;
 const SENSOR_FAILURE_LIMIT: u32 = 25;
 
-static DATA: Topic<ros_msgs::sensor_msgs::Imu, 2> = Topic::new("/imu/data", Qos::sensor_data());
+static DATA: Topic<ImuMessage, 2> = Topic::new("/imu/data", Qos::sensor_data());
 
 #[embassy_ros::node(name = "imu")]
 pub(crate) async fn node(
     node: Node,
     mut device: Imu,
-    #[publisher(topic = &DATA)] publisher: Publisher<ros_msgs::sensor_msgs::Imu>,
+    #[publisher(topic = &DATA)] publisher: Publisher<ImuMessage>,
 ) {
     let context = node.context();
     info!("[imu] task start");
@@ -62,30 +64,27 @@ pub(crate) async fn node(
     }
 }
 
-fn to_message(
-    reading: icm20602::Reading,
-    stamp: embassy_ros::Timestamp,
-) -> ros_msgs::sensor_msgs::Imu {
+fn to_message(reading: icm20602::Reading, stamp: embassy_ros::Timestamp) -> ImuMessage {
     let [ax, ay, az] = reading.acceleration;
     let [gx, gy, gz] = reading.angular_velocity;
     let mut orientation_covariance = [0.0f64; 9];
     orientation_covariance[0] = -1.0;
 
-    let mut message = ros_msgs::sensor_msgs::Imu {
-        orientation: ros_msgs::geometry_msgs::Quaternion {
+    let mut message = ImuMessage {
+        orientation: Quaternion {
             x: 0.0,
             y: 0.0,
             z: 0.0,
             w: 1.0,
         },
         orientation_covariance,
-        angular_velocity: ros_msgs::geometry_msgs::Vector3 {
+        angular_velocity: Vector3 {
             x: gx,
             y: gy,
             z: gz,
         },
         angular_velocity_covariance: [0.0; 9],
-        linear_acceleration: ros_msgs::geometry_msgs::Vector3 {
+        linear_acceleration: Vector3 {
             x: ax,
             y: ay,
             z: az,

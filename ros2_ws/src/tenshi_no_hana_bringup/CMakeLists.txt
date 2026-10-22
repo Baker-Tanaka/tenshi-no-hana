@@ -3,8 +3,12 @@ project(tenshi_no_hana_bringup)
 
 find_package(ament_cmake REQUIRED)
 
-install(DIRECTORY config launch rviz urdf
+install(DIRECTORY launch rviz urdf
   DESTINATION share/${PROJECT_NAME}
+)
+
+install(PROGRAMS scripts/imu_dead_reckoning.py
+  DESTINATION lib/${PROJECT_NAME}
 )
 
 if(BUILD_TESTING)

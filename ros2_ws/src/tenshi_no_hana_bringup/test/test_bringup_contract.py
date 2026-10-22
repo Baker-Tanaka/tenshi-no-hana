@@ -7,44 +7,9 @@ import yaml
 PACKAGE_ROOT = Path(__file__).parents[1]
 
 
-def load_yaml(name):
-    with (PACKAGE_ROOT / "config" / name).open() as stream:
-        return yaml.safe_load(stream)
-
-
 def test_metadata_and_xacro_are_well_formed_xml():
     ET.parse(PACKAGE_ROOT / "package.xml")
     ET.parse(PACKAGE_ROOT / "urdf" / "tenshi_no_hana.urdf.xacro")
-
-
-def test_odom_mode_matches_firmware_contract():
-    params = load_yaml("nav2_odom_params.yaml")
-    assert params["bt_navigator"]["ros__parameters"]["global_frame"] == "odom"
-    assert params["bt_navigator"]["ros__parameters"]["robot_base_frame"] == "base_link"
-    assert params["bt_navigator"]["ros__parameters"]["odom_topic"] == "/odom"
-    local = params["local_costmap"]["local_costmap"]["ros__parameters"]
-    assert local["range_layer"]["topics"] == ["/ultrasonic/front"]
-    assert local["range_layer"]["plugin"] == "nav2_costmap_2d::RangeSensorLayer"
-    global_costmap = params["global_costmap"]["global_costmap"]["ros__parameters"]
-    assert global_costmap["range_layer"]["topics"] == ["/ultrasonic/front"]
-    assert global_costmap["range_layer"]["plugin"] == "nav2_costmap_2d::RangeSensorLayer"
-
-
-def test_launch_is_odom_only():
-    launch_source = (PACKAGE_ROOT / "launch" / "bringup.launch.py").read_text()
-    assert "nav2_odom_params.yaml" in launch_source
-    assert 'DeclareLaunchArgument("use_rviz", default_value="true")' in launch_source
-    assert 'package="rviz2"' in launch_source
-    assert '("cmd_vel_smoothed", "/cmd_vel")' in launch_source
-    for stale_name in (
-        "amcl",
-        "collision_monitor",
-        "docking_server",
-        "localization_mode",
-        "route_server",
-        "scan_topic",
-    ):
-        assert stale_name not in launch_source
 
 
 def test_urdf_links_are_connected_to_base_link():
@@ -77,13 +42,23 @@ def test_urdf_links_are_connected_to_base_link():
     assert links == reachable
 
 
-def test_velocity_limits_are_below_firmware_limits():
-    params = load_yaml("nav2_odom_params.yaml")
-    planner = params["controller_server"]["ros__parameters"]["FollowPath"]
-    assert planner["max_vel_x"] <= 0.24
-    assert planner["max_vel_theta"] <= 1.0
-    smoother = params["velocity_smoother"]["ros__parameters"]
-    assert smoother["velocity_timeout"] < 0.5
+def test_runtime_dependencies_are_manual_only():
+    package = ET.parse(PACKAGE_ROOT / "package.xml").getroot()
+    dependencies = {element.text for element in package.findall("exec_depend")}
+    assert {
+        "geometry_msgs",
+        "nav_msgs",
+        "rclpy",
+        "sensor_msgs",
+        "teleop_twist_keyboard",
+        "tf2_ros",
+        "rviz2",
+        "rviz_imu_plugin",
+    } <= dependencies
+    assert not any(name.startswith("nav2") for name in dependencies)
+    assert sorted(path.name for path in (PACKAGE_ROOT / "launch").glob("*.py")) == [
+        "teleop.launch.py"
+    ]
 
 
 def test_teleop_launch_has_no_autonomous_command_source():
@@ -99,13 +74,18 @@ def test_teleop_launch_has_no_autonomous_command_source():
     with patch.object(module, "get_package_share_directory", return_value=str(PACKAGE_ROOT)):
         description = module.generate_launch_description()
     nodes = [action for action in description.entities if isinstance(action, Node)]
-    assert [node.node_package for node in nodes] == ["robot_state_publisher", "rviz2"]
+    assert [node.node_package for node in nodes] == [
+        "robot_state_publisher",
+        "tenshi_no_hana_bringup",
+        "rviz2",
+    ]
+    assert "exec='imu_dead_reckoning.py'" in nodes[1].cmd[0][0].describe()
 
 
 def test_teleop_visualizes_raw_acceleration_not_unavailable_orientation():
     with (PACKAGE_ROOT / "rviz" / "teleop.rviz").open() as stream:
         config = yaml.safe_load(stream)["Visualization Manager"]
-    assert config["Global Options"]["Fixed Frame"] == "base_link"
+    assert config["Global Options"]["Fixed Frame"] == "odom"
     displays = {display["Class"]: display for display in config["Displays"]}
     assert displays["rviz_default_plugins/Range"]["Topic"]["Value"] == "/ultrasonic/front"
     imu = displays["rviz_imu_plugin/Imu"]

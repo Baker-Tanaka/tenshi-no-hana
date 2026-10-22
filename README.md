@@ -1,41 +1,86 @@
-# Angel's Nose - ROS2 × Baker link. Dev × Rover
+# 天使の鼻
 
-> ⚠️ This project is under active development. Features, wiring, and documentation may change.
+## コンセプト
 
-**A 2WD rover remotely controlled from ROS 2/Nav2.**
+「天使の鼻」は、お酒の熟成中に蒸発する「天使の分け前」を嗅ぎ取る、
+蒸留所・熟成庫の見回りローバーを目指すプロジェクトです。
+アルコールセンサーのアナログ値をRP2040で読み取り、ROS 2で確認できます。
 
-## Illustrative Image
+**Embedded Rust（組み込みRust）でmicro-ROS相当のROS 2連携を実現**します。
+RP2040上では `no_std` のRustとEmbassyでデバイスを制御し、
+Rust製フレームワーク `micro_xrce_dds_rs` からMicro XRCE-DDSで
+micro-ROS Agentへ接続します。ファームウェアにはC版のmicro-ROSランタイムを
+組み込まず、生成済みのRustメッセージ型でROS 2と通信します。
 
-![Project preview](docs/img/image.png)
+> **注意：MQ-3の出力は未校正の生値です。**
+> `/alcohol` はADCの読み取り値を0.0〜1.0に正規化したもので、
+> アルコール濃度（ppm）や検知判定ではありません。MQ-3の予熱・校正も別途必要です。
+> 見回りや自律走行も将来の構想であり、現行実装は以下の手動操作とセンサー表示です。
 
-![System diagram](docs/img/tenshi_no_hana_rover_v2.svg)
+## 現在できること
 
-> 日本語版はこちら: [README.ja.md](./README.ja.md)
+Baker link. Dev（RP2040）の2輪ローバーを、ROS 2 Jazzy の
+`teleop_twist_keyboard` で操作し、IMU・超音波センサーをRViz2で表示します。
+MQ-3の未校正アナログ値はROS 2トピックで配信します。
+自律走行・地図・Nav2・odometry は使用しません。
 
-## Overview
-Angel's Nose is a compact 2-wheel rover based on the Baker link. Dev Rev.1 (RP2040) board. The current system targets ROS 2-controlled motion, IMU and ultrasonic sensing, and open-loop odometry. Distillery patrol, ethanol sensing and magnetic liquid-level estimation are future extensions, not implemented features.
+```text
+teleop_twist_keyboard -> /cmd_vel -> micro-ROS Agent (TCP 8888)
+                                        |
+                                      Wi-Fi
+                                        |
+                              ESP32-C6 / ESP-Hosted 2.12.9
+                                        |
+                                   SPI / RP2040
+                                 /      |      \
+                              DRV8835   IMU    HC-SR04   MQ-3
+                                         \      |       /
+                                      ROS 2 -> RViz2 / topic
+```
 
-This project combines:
-- **ESP32-C6 as a Wi-Fi ESP-hosted MCU (slave firmware 2.12.9)**
-- **Embassy-rs no_std async runtime**
-- **micro_xrce_dds_rs** with a **micro-ROS Agent** bridge
+## 準備とビルド
 
-## Key features
-- ROS 2 velocity commands with a 500 ms motor watchdog (currently forward-only)
-- 6-axis IMU (ICM-20602) acceleration and angular velocity (no attitude fusion)
-- HC-SR04 ranging and open-loop wheel-command odometry
-- Wi-Fi communication via ESP32-C6
-- Low-cost and lightweight no_std embedded design
-
-## Keyboard teleoperation and sensor visualization
-
-Use the normal rover firmware, not the autonomous `motor_check` or standalone
-`sensor_check` examples. Wi-Fi and the micro-ROS Agent TCP connection must work;
-sustained network operation is not yet verified.
+開発コンテナを使用してください。Rust・ROS 2・Agent・RViz2・teleop の
+依存パッケージは [.docker/Dockerfile](.docker/Dockerfile) で導入します。
+依存変更後はコンテナを再ビルドします。RViz2 には GUI を表示できる環境が必要です。
 
 ```sh
-sudo apt-get update
-sudo apt-get install ros-jazzy-teleop-twist-keyboard ros-jazzy-rviz-imu-plugin
+git submodule update --init --recursive
+cp wifi_config.json.example wifi_config.json
+# ローカルの wifi_config.json に SSID・パスワード・Agent の IPv4:port を設定
+cargo build --locked
+# リリース用: cargo build --release --locked
+```
+
+- `wifi_config.json` は git 管理外です。認証情報を commit しないでください。
+- Agent のアドレスはローバーから到達できるホストPCのLAN側IPです。
+  Docker内部IPではありません。TCP 8888 の公開・ファイアウォールも確認してください。
+- 現行ESP-hostedドライバのパスワード上限は UTF-8 で32バイトです。
+- debug の `opt-level = 2` を維持してください。無最適化ではprotobufデコーダが
+  RP2040のRAMを超えるスタックを確保します。
+- ボードへの書き込みは VS Code の `Baker Link: Debug` を使います。
+  ホスト側の Baker Link Env を Run にし、最初は車輪を浮かせてください。
+
+## 起動
+
+### 1. micro-ROS Agent
+
+開発コンテナではAgentが自動起動します。手動で動かす場合のみ、別端末で実行します。
+同じポートで二重起動しないでください。
+
+```sh
+source /opt/ros/jazzy/setup.bash
+source /opt/micro_ros_agent_ws/install/setup.bash
+ros2 run micro_ros_agent micro_ros_agent tcp4 --port 8888 -v 4
+```
+
+自動起動時のログは `/tmp/micro-ros-agent.log` です。
+Windows/WSLで到達できない場合の補助は [scripts/setup_portproxy.ps1](scripts/setup_portproxy.ps1)
+を参照してください。
+
+### 2. センサー表示
+
+```sh
 source /opt/ros/jazzy/setup.bash
 cd /tenshi-no-hana/ros2_ws
 colcon build --symlink-install --packages-select tenshi_no_hana_bringup
@@ -43,387 +88,131 @@ source install/setup.bash
 ros2 launch tenshi_no_hana_bringup teleop.launch.py
 ```
 
-Run RViz2 in a GUI-capable environment. This manual launch starts no Nav2
-controllers. It displays the rover, ultrasonic range and raw IMU acceleration
-(including gravity) in `base_link`. IMU orientation is deliberately disabled:
-the firmware does not estimate attitude. For angular velocity values use
-`ros2 topic echo /imu/data --field angular_velocity`.
+このlaunchは機体モデル・固定TFとRViz2のみを起動します。
+`base_link` 基準で超音波距離とIMUの生加速度ベクトル（重力込み）を表示します。
+機体寸法とセンサー位置は仮値なので、必要に応じて
+[URDF](ros2_ws/src/tenshi_no_hana_bringup/urdf/tenshi_no_hana.urdf.xacro)を実測値へ変更してください。
+IMUは姿勢推定しないため、姿勢表示は無効です。角速度は次で確認できます。
 
-In a separate interactive terminal:
+```sh
+ros2 topic echo /imu/data --field angular_velocity
+```
+
+### 3. キーボード操作
+
+別の対話端末で実行し、その端末にフォーカスして操作します。
 
 ```sh
 source /opt/ros/jazzy/setup.bash
-source /tenshi-no-hana/ros2_ws/install/setup.bash
 ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args \
   -p stamped:=false -p speed:=0.1 -p turn:=0.5 \
   --remap cmd_vel:=/cmd_vel
 ```
 
-Raise the wheels first. Focus the keyboard terminal: `i` drives forward,
-`u`/`o` turn while moving forward, `k` stops. Jazzy publishes once per key input:
-hold the movement key and configure OS key repeat faster than 500 ms.
-The firmware stops after 500 ms without fresh commands; the initial OS
-key-repeat delay may cause a brief stop.
-Forward-only mode rejects any command requiring a reversing wheel, including
-reverse and in-place rotation; increasing turn speed can also reject arcs.
-Do not run Nav2 or another `/cmd_vel` publisher concurrently.
+| キー | 動作 |
+| --- | --- |
+| `i` | 前進 |
+| `u` / `o` | 前進しながら左／右旋回 |
+| `k` | 停止 |
+| Ctrl+C | 停止して終了 |
 
-## Hardware bill of materials
-Estimated Japan-focused pricing as of April 2026.
+- **現在は前進専用**です。片輪でも逆転が必要な指令は両輪停止として扱います。
+  後退・その場旋回はできません。旋回速度を上げすぎると前進旋回も拒否されます。
+- Jazzy版はキー入力ごとの送信です。移動キーを押し続け、
+  OSのキーリピート間隔を500ms未満にしてください。リピート開始前に一度停止する場合があります。
+- 指令の受信から500ms経過、通信切断、再接続、非有限値ではモーターを停止します。
+  duty上限は60%です。これはソフトウェアの監視であり、MCU停止に対する
+  ハードウェアwatchdogではありません。
+- 他の `/cmd_vel` 配信元を同時に動かさないでください。
+  異常時に電源を切れる状態で、初回は車輪を浮かせて確認してください。
 
-| Part              | Example                                           | Approx. Price | Link                                                            | Notes                                                         |
-| ----------------- | ------------------------------------------------- | ------------- | --------------------------------------------------------------- | ------------------------------------------------------------- |
-| 2WD robot chassis | 2WD Mini Smart Robot Mobile Platform Kit          | ¥1,900        | [Akizuki](https://akizukidenshi.com/catalog/g/g113651/)         | Includes two FA-130 class 3 V gear motors                     |
-| Baker link. Dev   | Rev. 1                                            | ¥1,980        | [Switch Science](https://www.switch-science.com/products/10044) | Main MCU; native Embassy-rs / Rust no_std support             |
-| Motor driver      | AE-DRV8835-S (DRV8835 stepping & DC motor driver) | ¥400          | [Akizuki](https://akizukidenshi.com/catalog/g/g109848/)         | PH/EN mode (MODE pin tied to VCC)                             |
-| IMU               | ICM-20602 Breakout Board                          | ¥990          | [Switch Science](https://www.switch-science.com/products/8695)  | 6-axis (accel + gyro), I2C addr 0x68                          |
-| Ethanol sensor    | MQ-3B or MQ-3 module                              | ¥450          | [Akizuki](https://akizukidenshi.com/catalog/g/g116269/)         | Main sensor for vapor detection; heater requires 5 V / 150 mA |
-| Ultrasonic sensor | HC-SR04                                           | ¥300          | [Switch Science](https://www.switch-science.com/products/8224/) | For obstacle avoidance; 5 V device                            |
-| 3.3 V regulator   | NJU7223F33 (3.3 V / 500 mA LDO)                   | ¥80           | [Akizuki](https://akizukidenshi.com/catalog/g/g100432/)         | 9 V → 3.3 V rail (logic)                                      |
-| 5 V regulator     | BP5293-50 (5 V / 1 A DC-DC)                       | ¥240          | [Akizuki](https://akizukidenshi.com/catalog/g/g111188/)         | 9 V → 5 V rail (motors, MQ-3B heater, HC-SR04)                |
-| Battery           | 9 V (006P) + battery snap                         | ~¥500         | —                                                               | Feeds both regulators; add a power switch                     |
-| Voltage dividers  | 10 kΩ + 15 kΩ resistors ×2                        | < ¥20         | —                                                               | Required: scale MQ-3B AOUT and HC-SR04 Echo (5 V) to 3.0 V    |
+## 配線
 
-## Wiring
+### ESP32-C6
 
-![](docs/schematics/tenshi_no_hana_wiring.svg)
+ESP-Hosted MCU slave **2.12.9**、SPI mode 3、10MHz。
+GPIO番号はESP側ファームウェアの設定と合わせます。
 
-> The illustrations and C3 tables below describe the historical XIAO ESP32-C3 design.
-> The current hardware is ESP32-C6, running ESP-Hosted MCU slave 2.12.9.
-> Use the [verified current GPIO mapping](docs/DESIGN.md#ピンと電源), not the C3 tables.
+| RP2040 | ESP32-C6 GPIO | 信号 |
+| --- | --- | --- |
+| GP18 | 22 | CLK |
+| GP19 | 23 | MOSI |
+| GP16 | 21 | MISO |
+| GP17 | 18 | CS |
+| GP15 | 1 | Handshake |
+| GP13 | 2 | Data Ready |
+| GP14 | 16 | Slave Reset（ENではない） |
 
-### Power supply
+### センサー・モーター
 
-```
-9 V battery (006P)
-  ├── BP5293-50  → 5 V rail   : XIAO 5V pin, MQ-3B VCC (heater), HC-SR04 VCC, DRV8835 VM
-  └── NJU7223F33 → 3.3 V rail : Baker link. Dev 3V3, ICM-20602 VCC, DRV8835 VCC (logic)
-```
+| RP2040 | 接続先 |
+| --- | --- |
+| GP4 / GP5 | ICM-20602 SDA / SCL（0x68または0x69、自動検出） |
+| GP2 / GP3 | HC-SR04 Trigger / Echo |
+| GP28 | MQ-3 AO（22 kΩをAO側、10 kΩをGND側とする分圧の接点） |
+| GP10 / GP11 | 左DRV8835 PHASE / ENABLE（PWM） |
+| GP12 / GP9 | 右DRV8835 PHASE / ENABLE（PWM） |
 
-> - **Disconnect the battery while USB is connected** for flashing/debugging.
-> - BP5293-50 needs **≥ 8 V input**; watch the 9 V battery level.
-> - NJU7223F33 dissipates (9 V − 3.3 V) × load as heat; keep the 3.3 V load light and provide copper area for cooling.
+GNDを共通にし、RP2040のGPIO/ADC信号は3.3V以下にしてください。MQ-3モジュールを5V給電する場合、
+AOとGNDの間に22 kΩと10 kΩを直列に接続し、その接点をGP28へ接続します
+（AO—22 kΩ—GP28—10 kΩ—GND）。AOが5VのときGP28は約1.56Vです。
+未分圧のAOをGP28へ接続しないでください。HC-SR04は5V給電で、
+Echoは10kΩ（上側）/15kΩ（GND側）の分圧を通します。RP2040は5V非耐圧です。
+DRV8835のコードはPH/EN（MODE=VCC）を前提としますが、現行実機では
+後進が未確認のため前進専用です。
 
-### Signal-level notes (5 V → 3.3 V)
+モーターは3V定格、VMは5Vを想定しています。USBと電池は電源を分離・逆流防止
+できていると確認できない限り同時に接続しないでください。
+[cad/](cad/) は旧設計の資料として残しています。ESP32-C3などの旧部品・配線を
+含むため、現行の接続先は上の表を優先してください。
 
-The RP2040 GPIOs are **not 5 V tolerant**. Two signals need a **10 kΩ + 15 kΩ voltage divider** (5 V → 3.0 V):
+## 構成とテスト
 
-- **MQ-3B AOUT → GP26 (ADC0)** — Reserved for a future sensor node; ADC acquisition and warm-up handling are not implemented. AOUT can reach ~5 V.
-- **HC-SR04 Echo → GP3** — Echo outputs 5 V pulses.
+| 場所 | 内容 |
+| --- | --- |
+| [src/main.rs](src/main.rs) | 初期化とノードの登録 |
+| [src/board.rs](src/board.rs) | ピンと周辺回路 |
+| [src/network.rs](src/network.rs) | Wi-Fi・DHCP・Agent接続と再試行 |
+| [src/nodes/](src/nodes/) | motor・imu・range・alcohol |
+| [examples/alcohol_check.rs](examples/alcohol_check.rs) | Wi-Fi/ROSを使わずGP28のMQ-3 ADC値だけをRTT出力するテスト |
+| [src/drivers/](src/drivers/) | デバイス操作 |
+| [src/diff_drive.rs](src/diff_drive.rs) | 前進専用の左右輪指令計算 |
+| [ros2_ws/src/tenshi_no_hana_bringup/](ros2_ws/src/tenshi_no_hana_bringup/) | 手動操作用launch・RViz・URDF |
+| [msgs/](msgs/) / [generated/](generated/) | ROSメッセージ入力 / 生成済みno_std Rust crate |
+| [external/](external/) | EmbassyとRust micro-ROSフレームワーク |
 
-### Motor drive
+| ROS topic | 方向 | 型 |
+| --- | --- | --- |
+| `/cmd_vel` | 購読 | `geometry_msgs/Twist` |
+| `/imu/data` | 配信 | `sensor_msgs/Imu` |
+| `/ultrasonic/front` | 配信 | `sensor_msgs/Range` |
+| `/alcohol` | 配信 | `std_msgs/Float32`（ADC raw / 4095） |
 
-The kit's gear motors are rated **3 V** while DRV8835 VM is fed from the 5 V rail.
-Limit the PWM duty to **~60 %** in firmware to keep the effective motor voltage near 3 V
-(DRV8835 max 1.5 A/ch; place a bulk capacitor near VM).
-
-## Wireless stack
-- Uses **ESP32-C6** with ESP-Hosted MCU slave firmware **2.12.9**
-- Uses the `external/embassy` submodule and `embassy-net-esp-hosted` from the `upstream-esp-hosted-mcu` fork
-
-## Software stack
-- `micro_xrce_dds_rs` with micro-ROS Agent TCP transport
-- Generated `no_std` standard ROS message crates; no C RMW library is linked into the firmware
-
-## Firmware build
-
-```sh
-git submodule update --init --recursive
-cp wifi_config.json.example wifi_config.json
-# Edit wifi_config.json locally: SSID, password, Agent IPv4 address and port.
-cargo build --locked
-cargo build --release --locked
-```
-
-The toolchain is pinned in [rust-toolchain.toml](rust-toolchain.toml).
-Install `flip-link` (the development container already provides it).
-Do not commit Wi-Fi credentials. Invalid JSON, SSID size or Agent endpoints
-fail the build instead of producing a firmware with fallback settings.
-The current ESP-hosted fork limits passwords to 32 UTF-8 bytes; longer
-passwords are rejected at build time rather than retried indefinitely.
-The default feature is `wifi`; the binary requires this feature.
-Keep `opt-level = 2` for both application and dependencies in debug builds.
-Dependency-only optimization does not bound the stack of protobuf decoders
-monomorphized in the application. Debug symbols and assertions stay enabled.
-
-Pure rover math can be tested without a board:
+IMUは加速度と角速度のみ、超音波は測定失敗・範囲外を正の無限大で配信します。
+`/odom` と動的 `/tf` の配信はありません。センサーの固定TFはホストで生成します。
+センサータスクはWi-Fi接続前から動作し、時刻はAgent同期前のみ起動後時刻です。
+実機でキーボード操作、IMUの重力加速度、超音波の連続測距を確認済みです。
+長時間の通信安定性と測定精度は別途検証が必要です。
 
 ```sh
-cargo test --lib --no-default-features --target x86_64-unknown-linux-gnu
+# ボード不要の走行計算・距離換算テスト
+cargo test --locked --lib --no-default-features --target x86_64-unknown-linux-gnu
+
+# ROS構成テスト（先にROS環境をsource）
+cd /tenshi-no-hana/ros2_ws
+colcon test --packages-select tenshi_no_hana_bringup
+colcon test-result --verbose
 ```
 
-After changing [message definitions](msgs/) or device capacities, regenerate
-inside the ROS Jazzy development container:
+通常のCargoビルドにROSやPythonは不要です。メッセージ定義を変更した場合だけ、
+ROS Jazzy環境で再生成し、入力と出力を一緒に管理します。
+生成・互換性試験用の標準メッセージ一式は維持し、アプリは必要なcrateだけに依存します。
 
 ```sh
 bash external/micro_xrce_dds_rs/codegen/regenerate.sh
-# Check definitions, generator and generated output agree without rewriting:
 bash external/micro_xrce_dds_rs/codegen/regenerate.sh --check
 ```
 
-See the [generator documentation](external/micro_xrce_dds_rs/codegen/README.md)
-for ament integration and tests. Commit regenerated crates together with their
-inputs. Changes inside a submodule must be committed and published in that
-repository before the parent can pin their revision; a parent-only commit
-cannot preserve uncommitted submodule source changes.
-
-## Development container
-
-Open the repository in VS Code and run **Dev Containers: Rebuild and Reopen in
-Container**. The [Dev Containers configuration](.devcontainer/devcontainer.json)
-builds the [Dockerfile](.docker/Dockerfile) directly; Docker Compose is not used.
-
-The repository is mounted at `/tenshi-no-hana` and commands run as `vscode`.
-The image entrypoint starts the micro-ROS Agent on TCP port `8888`, published
-on host port `8888` so the rover can connect to the host's LAN address.
-`host.docker.internal` resolves to the host gateway inside the container.
-Agent output is available at `/tmp/micro-ros-agent.log` inside the container.
-Use **Dev Containers: Reopen in Container** to start it again after closing VS Code.
-To restart the container and its Agent from the host, run:
-
-```sh
-docker restart tenshi-no-hana-container
-```
-
-## Firmware architecture
-
-The firmware uses a static launch composition rather than a runtime ROS 2
-launch file. [`src/main.rs`](src/main.rs) is only the Embassy entry point:
-it initializes the RP2040 and ROS context, gives the spawner to `NodeSpawner`,
-assembles board resources, and calls
-[`src/launch.rs`](src/launch.rs). To add or remove a node, change the node startup list
-in the launch module, not the entry point.
-
-| Module | Responsibility |
-| --- | --- |
-| [`board.rs`](src/board.rs) | Pin assignments, interrupt bindings, construction of hardware resources |
-| [`drivers/`](src/drivers/) | DRV8835, HC-SR04 and ICM-20602 device I/O; no ROS entities |
-| [`network.rs`](src/network.rs) | ESP-hosted and network runner tasks, Wi-Fi/DHCP/TCP setup and XRCE driver startup |
-| [`launch.rs`](src/launch.rs) | Application task composition and startup order |
-| [`nodes/imu/`](src/nodes/imu/) | `/imu/data` |
-| [`nodes/range/`](src/nodes/range/) | `/ultrasonic/front` |
-| [`nodes/motor/`](src/nodes/motor/) | `/cmd_vel`, watchdog and coherent realized-motion snapshot |
-| [`nodes/odometry/`](src/nodes/odometry/) | Open-loop `/odom` and `/tf` |
-
-Each node keeps its task implementation, topics and node-specific configuration
-in its own folder. Each node is one ordinary async function marked with
-`#[embassy_ros::node(name = "...")]`, with publishers/subscriptions declared on
-typed arguments. There is no setup/run tuple or separate startup function.
-Launch lists `nodes.register(imu::node, board.imu)?` and equivalent registrations
-(odometry receives `()`). The framework owns task allocation and spawning.
-Topics and the generated task are private; endpoint creation and ROS connection
-are automatic. Topic delivery is shared, but DDS endpoints belong to each node.
-Launch transfers hardware ownership; it does not pass publishers/subscriptions.
-No node selects a local versus network publisher.
-The IMU task owns its I2C bus directly; it does not need a shared-bus cell.
-Motor and odometry tasks share one short critical-section-protected snapshot,
-so velocity components and their update time cannot come from different samples.
-
-Sensing, motor control and odometry start before Wi-Fi/Agent connection.
-The motor watches the framework's versioned connection status, stops on
-connection loss, and rejects stale/expired commands. Its 500 ms watchdog uses
-the command's original device-admission time, not the later dequeue time.
-Remote `/cmd_vel` operation
-still requires Wi-Fi and a micro-ROS Agent; offline mode continues local
-sampling and state estimation, not autonomous driving.
-
-The public framework is
-[`embassy-ros`](external/micro_xrce_dds_rs/embassy_ros/README.md):
-`embassy_ros::init()` -> `Context` -> `Node` -> typed `Topic` endpoints.
-Static storage makes capacities explicit without exposing Embassy channels.
-[`micro_xrce_dds_rs`](external/micro_xrce_dds_rs/) remains its low-level backend.
-The framework owns entity creation, routing and clock synchronization.
-Nodes read `context.clock().now()` at sampling time. Before the first
-successful synchronization the clock
-uses monotonic time since boot, as before; this is not Unix time.
-Connection retry policy, sensor calibration, motor limits and the node graph
-remain application-specific. Transport failures are logged and the application
-retries the Agent connection. Wi-Fi link loss triggers reassociation; the
-ESP-hosted heartbeat notifier is used instead of the driver's panic-on-timeout
-default. Hardware initialization still depends on a responsive slave.
-
-The optional `embassy_ros::transport::embassy_net::Agent` adapter owns the TCP
-connection/handshake attempt. The application supplies the endpoint, static
-`TcpBuffers` and retry policy; a failed attempt returns the socket for reuse.
-Both connection and handshake failures are logged and retried during startup.
-Board-specific Wi-Fi setup remains in `network.rs`.
-
-ROS message generation uses the official ROS IDL adapter/parser through the
-host-only [generator](external/micro_xrce_dds_rs/codegen/README.md), following
-the generator/runtime separation in
-[ros2_rust](https://github.com/ros2-rust/ros2_rust/blob/main/docs/message-generation.md).
-The [generated package crates](generated/) are checked in and use `no_std`
-types and CDR serialization, without C RMW bindings. Unbounded fields have
-device-local capacities of 32-byte strings and one sequence element, matching
-the single transform emitted on `/tf`. Regenerate when definitions or capacities
-change; normal firmware builds do not run Python or require ROS.
-The application build script only embeds validated Wi-Fi configuration and
-sets the linker search path. Generated Header types offer `set_stamp`.
-Framework publishing
-is nonblocking keep-last acceptance, not delivery ACKs or reliable event delivery.
-
-`main.rs` initializes the framework once. `launch.rs` registers the node
-definitions, motor first. The framework synchronously prepares endpoints and
-ROS directions before scheduling each task, without network I/O. Registration
-failures include node/topic/phase and poison configuration, preventing later
-registration or network startup. Main explicitly calls `nodes.finish()` after
-registration and before starting networking. There is no global activation barrier
-or rollback of previously spawned tasks. The framework connection
-task bridges the existing ROS interfaces without node-specific bridge loops.
-Network startup may continue
-retrying indefinitely without blocking local control. Existing ROS topic names
-and motor limits are unchanged.
-
-This `launch.rs` is the embedded equivalent of choosing a ROS node graph; it
-does not replace the host-side `ros2 launch` files, which configure host ROS 2
-processes such as Nav2 and RViz.
-
-## How it works
-## ROS 2 interface
-
-| Direction | Topic               | Type                  | Purpose                                     |
-| --------- | ------------------- | --------------------- | ------------------------------------------- |
-| Subscribe | `/cmd_vel`          | `geometry_msgs/Twist` | Remote velocity command                     |
-| Publish   | `/imu/data`         | `sensor_msgs/Imu`     | ICM-20602 acceleration and angular velocity |
-| Publish   | `/ultrasonic/front` | `sensor_msgs/Range`   | HC-SR04 front obstacle distance             |
-| Publish   | `/odom`             | `nav_msgs/Odometry`   | Open-loop pose and realized velocity        |
-| Publish   | `/tf`               | `tf2_msgs/TFMessage`  | `odom` to `base_link` transform             |
-
-The firmware synchronizes message timestamps with the micro-ROS Agent. IMU
-orientation is intentionally unavailable, and odometry is open-loop because
-this chassis has no wheel encoders. Use external localization for accurate
-Nav2 operation.
-
-## RViz2 and Nav2
-
-Rebuild the development container after changing `.docker/Dockerfile`, then
-build and source the host package:
-
-```sh
-cd ros2_ws
-colcon build --symlink-install
-source install/setup.bash
-```
-
-Start the default odom-relative mode after the rover and micro-ROS Agent are
-connected:
-
-```sh
-ros2 launch tenshi_no_hana_bringup bringup.launch.py
-```
-
-This mode supports short, low-speed relative goals without a map. In RViz2,
-use **2D Goal Pose** to send a goal. Start with the wheels raised, then test
-goals of 0.25-0.5 m on the floor. Cancelling Nav2 or stopping velocity output
-causes the firmware watchdog to stop the motors within 500 ms.
-
-The HC-SR04 only covers a narrow area in front of the rover. It improves
-near-field obstacle detection but cannot replace a lidar for localization,
-SLAM, or full-surround collision avoidance. The current odometry integrates
-commanded motor speed without encoders and accumulates unbounded position
-error. Measure and update the provisional dimensions in the
-[robot description](ros2_ws/src/tenshi_no_hana_bringup/urdf/tenshi_no_hana.urdf.xacro)
-before relying on the costmap footprint.
-See [docs/DESIGN.md](docs/DESIGN.md) for the canonical hardware and system
-design.
-
-## Future work
-- MQ-3B acquisition/calibration and magnetic liquid-level sensing
-- Wheel encoder or external localization integration for higher-accuracy Nav2
-- Autonomous mapping and multi-rover operation
-
-## Historical ESP32-Hosted (ESP32-C3) pin mapping
-
-This section is historical, not the current ESP32-C6 configuration.
-See the [current GPIO mapping](docs/DESIGN.md#ピンと電源).
-These are the intended pin assignments. The version and `sdkconfig` of the
-previously working ESP-hosted slave are not recorded; confirm them against the
-running device before rebuilding its firmware.
-
-> Reference: [Seeed Studio XIAO ESP32C3 Getting Started](https://wiki.seeedstudio.com/XIAO_ESP32_C3_Getting_Started/)
-
-### XIAO ESP32C3 GPIO ↔ physical pin mapping
-
-| XIAO pin | GPIO   | Default function | Notes                         |
-| -------- | ------ | ---------------- | ----------------------------- |
-| D0       | GPIO2  | ADC              | ⚠️ Strapping pin               |
-| D1       | GPIO3  | ADC              |                               |
-| D2       | GPIO4  | ADC              | MTMS (JTAG)                   |
-| D3       | GPIO5  | ADC              | MTDI (JTAG)                   |
-| D4       | GPIO6  | SDA (I2C)        | FSPICLK, MTCK (JTAG)          |
-| D5       | GPIO7  | SCL (I2C)        | FSPID, MTDO (JTAG)            |
-| D6       | GPIO21 | UART TX          |                               |
-| D7       | GPIO20 | UART RX          |                               |
-| D8       | GPIO8  | SPI SCK          | ⚠️ Strapping pin               |
-| D9       | GPIO9  | SPI MISO         | ⚠️ Strapping pin / BOOT button |
-| D10      | GPIO10 | SPI MOSI         | FSPICS0                       |
-
-### Recommended esp-hosted slave wiring
-
-> Avoid all strapping pins (GPIO2/8/9) for stable operation.
-
-| Signal     | GPIO   | XIAO pin | Purpose                   |
-| ---------- | ------ | -------- | ------------------------- |
-| SPI MOSI   | GPIO7  | D5       | Required                  |
-| SPI MISO   | GPIO5  | D3       | Required                  |
-| SPI CLK    | GPIO6  | D4       | Required                  |
-| SPI CS     | GPIO10 | D10      | Required                  |
-| Handshake  | GPIO3  | D1       | Timing sync               |
-| Data Ready | GPIO4  | D2       | Data arrival notification |
-| Reset      | GPIO21 | D6       | Recommended               |
-
-#### Changes from previous wiring
-
-| Signal   | Old GPIO   | New GPIO    | Reason                                   |
-| -------- | ---------- | ----------- | ---------------------------------------- |
-| SPI MISO | GPIO2 (D0) | GPIO5 (D3)  | Avoid strapping pin and boot instability |
-| Reset    | none       | GPIO21 (D6) | Add host reset control                   |
-
-#### Spare pins
-
-| XIAO pin | GPIO   | Notes                            |
-| -------- | ------ | -------------------------------- |
-| D0       | GPIO2  | Spare, but avoid strapping pin   |
-| D7       | GPIO20 | Spare UART RX for debugging      |
-| D8       | GPIO8  | Spare, but avoid strapping pin   |
-| D9       | GPIO9  | Spare, but avoid BOOT button pin |
-
-### ESP-IDF menuconfig setup
-
-```powershell
-idf.py menuconfig
-```
-
-Navigate to **Example Configuration → Bus Config → SPI Full-Duplex Configuration** and set:
-
-| Option            | Value |
-| ----------------- | ----- |
-| SPI MOSI (GPIO)   | 7     |
-| SPI MISO (GPIO)   | 5     |
-| SPI CLK (GPIO)    | 6     |
-| SPI CS (GPIO)     | 10    |
-| Handshake (GPIO)  | 3     |
-| Data Ready (GPIO) | 4     |
-| Reset pin (GPIO)  | 21    |
-
-Save and rebuild.
-
-```bash
-# Create esp-hosted-mcu slave sample (ESP-IDF v5.3+ assumed)
-idf.py create-project-from-example "espressif/esp_hosted:slave"
-cd slave
-idf.py set-target esp32c3
-idf.py menuconfig
-# Set SPI Full-Duplex Configuration:
-#   MISO=5, MOSI=7, CLK=6, CS=10, HS=3, DR=4
-#   Reset GPIO=21
-idf.py build flash
-```
-
-## Submodule setup
-
-RP2040-side dependencies are managed via git submodules:
-
-```bash
-git submodule update --init --recursive external/embassy external/micro_xrce_dds_rs
-```
+生成器の詳細は [codegen/README.md](external/micro_xrce_dds_rs/codegen/README.md) を参照してください。
+submodule内の変更を配布する際は、それぞれのリポジトリへ先にcommit/pushし、
+親リポジトリの参照を更新してください。

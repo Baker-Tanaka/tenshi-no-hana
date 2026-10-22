@@ -2,10 +2,8 @@
 #![no_main]
 
 mod board;
-mod launch;
 mod network;
 mod nodes;
-mod ros_msgs;
 mod wifi_config;
 
 use cortex_m_rt::exception;
@@ -31,7 +29,11 @@ async fn main(spawner: Spawner) {
     let board = board::init(peripherals);
     let context = defmt::unwrap!(embassy_ros::init(&ROS, InitOptions::default()));
     let nodes = NodeSpawner::new(spawner, context);
-    let wifi = defmt::unwrap!(launch::register(&nodes, board));
+    defmt::unwrap!(nodes.register(nodes::motor::node, board.motors));
+    defmt::unwrap!(nodes.register(nodes::imu::node, board.imu));
+    defmt::unwrap!(nodes.register(nodes::range::node, board.range));
+    defmt::unwrap!(nodes.register(nodes::alcohol::node, board.alcohol));
     let context = defmt::unwrap!(nodes.finish());
-    launch::network(spawner, context, wifi);
+    spawner
+        .spawn(network::run(spawner, context, board.wifi, wifi_config::AppConfig::new()).unwrap());
 }

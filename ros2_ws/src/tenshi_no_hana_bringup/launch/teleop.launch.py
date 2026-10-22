@@ -27,6 +27,12 @@ def generate_launch_description():
             output="screen",
         ),
         Node(
+            package="tenshi_no_hana_bringup",
+            executable="imu_dead_reckoning.py",
+            name="imu_dead_reckoning",
+            output="screen",
+        ),
+        Node(
             package="rviz2",
             executable="rviz2",
             arguments=["-d", str(rviz_config)],

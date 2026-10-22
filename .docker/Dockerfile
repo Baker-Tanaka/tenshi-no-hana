@@ -20,8 +20,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 	libudev-dev \
 	pkg-config \
 	ros-jazzy-ament-cmake-python \
-	ros-jazzy-nav2-bringup \
-	ros-jazzy-navigation2 \
 	ros-jazzy-rviz2 \
 	ros-jazzy-rviz-imu-plugin \
 	ros-jazzy-teleop-twist-keyboard \
